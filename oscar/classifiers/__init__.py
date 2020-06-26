@@ -5,4 +5,3 @@
 # agreement between Intel Corporation and you.
 #
 
-from .detectron2 import Detectron2Classifier
