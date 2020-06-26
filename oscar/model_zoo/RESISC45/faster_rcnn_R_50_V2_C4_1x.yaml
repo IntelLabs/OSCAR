@@ -2,7 +2,7 @@ MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
   WEIGHTS: "oscar:///home/ccorneli/Projects/big_transfer/logs/bit_resisc45/resisc45_2020-05-28_124512/bit.pkl"
   PIXEL_MEAN: [127.5, 127.5, 127.5]
-  PIXEL_STD: [1., 1., 1.]
+  PIXEL_STD: [127.5, 127.5, 127.5]
   BACKBONE:
     NAME: "ResNetV2"
     FREEZE_AT: 0
@@ -22,8 +22,8 @@ DATASETS:
   TEST: ("resisc45_val",)
 SOLVER:
   IMS_PER_BATCH: 16
-  BASE_LR: 0.0001
-  STEPS: (20000, 40000, 60000, 80000)
+  BASE_LR: 0.001
+  STEPS: (10000, 30000, 70000)
   MAX_ITER: 100000
   CHECKPOINT_PERIOD: 500
 INPUT:

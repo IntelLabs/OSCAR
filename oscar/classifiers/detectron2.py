@@ -30,6 +30,9 @@ import big_transfer.bit_pytorch.models
 from big_transfer import bit_pytorch
 
 from armory.data.utils import maybe_download_weights_from_s3
+from armory.data.resisc45.resisc45_dataset_partition import LABELS
+
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +93,20 @@ class Res5V2ROIHeads(Res5ROIHeads):
         self.num_classes = cfg.MODEL.ROI_HEADS.NUM_CLASSES
         model = bit_pytorch.models.KNOWN_MODELS['BiT-M-R50x1'](self.num_classes)
 
-        res5 = model.body.block4
+        head = torch.nn.Sequential(OrderedDict([
+            ('gn', model.head.gn),
+            ('relu', model.head.relu),
+            ('avg', model.head.avg),
+        ]))
+
+        block = torch.nn.Sequential(OrderedDict([
+            ('res5', model.body.block4),
+            ('head', head),
+        ]))
+
         out_channels = model.body.block4.unit01.downsample.out_channels
 
-        return res5, out_channels
+        return block, out_channels
 
 class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradients):
     def __init__(self, config_file, weights_file, clip_values=None, preprocessing_defences=None, postprocessing_defences=None, preprocessing=None, channel_index=None, device='gpu'):
@@ -111,9 +124,7 @@ class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradie
             self._device = 'cuda'
 
         # Register resisc45 metadata
-        # XXX: The order of these classes matters, and, in particular, are in a different order
-        #      than what Armory expects. Armory expects these to be sorted alphabetically.
-        MetadataCatalog.get('resisc45_val').set(thing_classes=['medium_residential', 'intersection', 'cloud', 'commercial_area', 'industrial_area', 'airport', 'railway', 'lake', 'desert', 'ground_track_field', 'tennis_court', 'harbor', 'stadium', 'mobile_home_park', 'freeway', 'bridge', 'rectangular_farmland', 'wetland', 'sparse_residential', 'snowberg', 'airplane', 'railway_station', 'baseball_diamond', 'circular_farmland', 'mountain', 'terrace', 'beach', 'parking_lot', 'overpass', 'dense_residential', 'island', 'basketball_court', 'roundabout', 'ship', 'storage_tank', 'forest', 'golf_course', 'meadow', 'river', 'thermal_power_station', 'palace', 'runway', 'church', 'chaparral', 'sea_ice'])
+        MetadataCatalog.get('resisc45_val').set(thing_classes=LABELS)
 
         self._model, self._metadata = create_model(config_file, weights_file, device=self._device, score_thresh=0.0)
         self.preprocessing = None
@@ -167,8 +178,6 @@ class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradie
         for i, outputs in enumerate(batched_outputs):
             instances = outputs['instances']
 
-            instances.pred_classes = self.map_classes(instances.pred_classes)
-
             if len(instances) > 0:
                 # Take most confident prediction
                 results[i, instances.pred_classes[0]] = 1
@@ -180,13 +189,6 @@ class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradie
         # TODO: Should _apply_postprocessing
 
         return results
-
-    def map_classes(self, pred_classes):
-        CLASS_MAP = [20,  5, 22, 31, 26, 15, 43, 42, 23,  2,  3, 29,  8, 35, 14, 36,  9,
-                     11,  4,  1, 30,  7, 37,  0, 13, 24, 28, 40, 27,  6, 21, 16, 38, 32,
-                     41, 44, 33, 19, 18, 12, 34, 10, 25, 39, 17]
-
-        return [CLASS_MAP.index(pred_class) for pred_class in pred_classes]
 
     def loss_gradient(self, x, y, **kwargs):
         # TODO: Should _apply_preprocessing
@@ -202,7 +204,7 @@ class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradie
         # Create inputs for Detectron2 model
         #gt_bboxes = compute_bounding_boxes(preprocessed_images)
         gt_bboxes = [torch.Tensor([[0, 0, image.shape[1], image.shape[2]]]).long() for image in preprocessed_images]
-        gt_classes = [torch.Tensor([self.map_classes([np.argmax(onehot)])[0]]).long() for onehot in y]
+        gt_classes = [torch.Tensor([[np.argmax(onehot)][0]]).long() for onehot in y]
 
         batched_inputs = create_inputs(preprocessed_images, gt_bboxes=gt_bboxes, gt_classes=gt_classes)
 
@@ -245,6 +247,6 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file):
     logger.info('config_file = %s', config_file)
     logger.info('weights_file = %s', weights_file)
 
-    classifier = Detectron2Classifier(config_file, weights_file)
+    classifier = Detectron2Classifier(config_file, weights_file, clip_values=(0., 255.))
 
     return classifier
