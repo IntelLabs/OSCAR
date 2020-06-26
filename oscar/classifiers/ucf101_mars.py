@@ -8,7 +8,7 @@
 import numpy as np
 import torch
 from art.classifiers import PyTorchClassifier
-from armory.baseline_models.pytorch.ucf101_mars import get_art_model, make_model, DEVICE
+from armory.baseline_models.pytorch.ucf101_mars import make_model, DEVICE
 from MARS.dataset.preprocess_data import get_mean as get_ucf101_mean
 from art.utils import check_and_transform_label_format
 import torch.nn.functional as F
@@ -51,17 +51,16 @@ def preprocessing_fn(inputs, clip_size=16, mid_clip_only=False):
     return inputs
 
 
-# 1. Run predict() in one batch and no_grad().
-#       Note: The batch_size is ignored, so no need to change the scenario definition.
-# 2. Perform differentiable MARS preprocessing on CUDA, if the datapipeline doesn't do that.
-class EfficientPyTorchClassifier(PyTorchClassifier):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        means = get_ucf101_mean('activitynet')
-        self.means = torch.tensor(means, dtype=torch.float32, device=self._device).view(1,3,1,1,1)
+# A MARS preprocessing layer which resizes and normalizes images.
+class MarsPreprocess(torch.nn.Module):
+    def __init__(self, frame_size, means):
+        super().__init__()
+        self.frame_size = frame_size
+        self.register_buffer('means', torch.tensor(means, dtype=torch.float32).view(1,3,1,1,1))
 
 
-    def _differentiable_mars_preprocess(self, x, frame_size=112):
+    def forward(self, x):
+        frame_size = self.frame_size
         # Input: (nb_clips, nb_channels, clip_size, height, width) [0, 255]
         # Output:(nb_clips, nb_channels, clip_size, frame_size, frame_size), normalized.
         nb_clips, nb_channels, clip_size, height, width = x.shape
@@ -99,43 +98,19 @@ class EfficientPyTorchClassifier(PyTorchClassifier):
         x_clips[:,:3,:,:,:] -= self.means
         return x_clips
 
-
-    def _differentiable_mars_preprocess_gradient(self, x, grad):
-        x = torch.tensor(x, device=self._device, dtype=torch.float32, requires_grad=True)
-        x_prime = self._differentiable_mars_preprocess(x)
-        grad = torch.tensor(grad, device=x_prime.device)
-        x_prime.backward(grad)
-        x_grad = x.grad.detach().cpu().numpy()
-        if x_grad.shape != x.shape:
-            raise Exception("The input shape is {} while the gradient shape is {}".format(x.shape, x_grad.shape))
-        return x_grad
+    def extra_repr(self):
+        return 'MARS preprocessing which resizes images to {}x{} and normalizes by means {}'.format(
+            self.frame_size,
+            self.frame_size,
+            self.means.squeeze()
+        )
 
 
-    # We hack _apply_preprocessing() and _apply_preprocessing_gradient() to integrate _differentiable_mars_preprocess()
-    # Start from art/classifiers/classifier.py::Classifier._apply_preprocessing()
-    def _apply_preprocessing(self, x, y, fit):
-        y = check_and_transform_label_format(y, self.nb_classes())
-        x_preprocessed, y_preprocessed = self._apply_preprocessing_defences(x, y, fit=fit)
-
-        # Add differentiable MARS pre-processing right after Defense.
-        x_preprocessed = torch.tensor(x_preprocessed, dtype=torch.float32, device=self._device)
-        with torch.no_grad():
-            x_preprocessed = self._differentiable_mars_preprocess(x_preprocessed)
-            x_preprocessed = x_preprocessed.detach().cpu().numpy()
-
-        x_preprocessed = self._apply_preprocessing_standardisation(x_preprocessed)
-        return x_preprocessed, y_preprocessed
-
-
-    # Start from art/classifiers/classifier.py::ClassifierGradients._apply_preprocessing_gradient()
-    def _apply_preprocessing_gradient(self, x, gradients):
-        gradients = self._apply_preprocessing_normalization_gradient(gradients)
-
-        # Add differentiable MARS pre-processing right before Defense in a backward pass.
-        gradients = self._differentiable_mars_preprocess_gradient(x, gradients)
-
-        gradients = self._apply_preprocessing_defences_gradient(x, gradients)
-        return gradients
+# Run predict() in one batch and no_grad().
+#  Note: The batch_size is ignored, so no need to change the scenario definition.
+class EfficientPyTorchClassifier(PyTorchClassifier):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
     def predict(self, x, batch_size=128, **kwargs):
@@ -184,6 +159,11 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file):
     clip_values = (0., 255.)
 
     model, optimizer = make_model(weights_file=weights_file, **model_kwargs)
+
+    # Insert MARS preprocessing into the head of the model.
+    mars_preprocess_layer = MarsPreprocess(frame_size=112, means=get_ucf101_mean('activitynet'))
+    model.module.conv1 = torch.nn.Sequential(mars_preprocess_layer, model.module.conv1)
+
     model.to(DEVICE)
 
     wrapped_model = EfficientPyTorchClassifier(
