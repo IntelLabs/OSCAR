@@ -15,19 +15,16 @@ from detectron2.model_zoo import get_config_file
 class BackgroundAblator(Preprocessor):
     def __init__(self,
         invert_mask=False,
-        perturb_whole_frame=False,
+        ignore_mask_gradient=False,
         detectron2_config_path="",
         detectron2_weights_path="",
         detectron2_score_thresh=None,
         detectron2_iou_thresh=None,
-        mid_clip_only=False,
+        is_input_normalized=True,
         means=None
     ):
         self.invert_mask = invert_mask
-        self.perturb_whole_frame = perturb_whole_frame
-
-        # We may only examine the middle clip of a video if on-the-fly ablation with Detectron2 is prohibitively expensie.
-        self.mid_clip_only = mid_clip_only
+        self.ignore_mask_gradient = ignore_mask_gradient
 
         if torch.cuda.is_available():
             self._device = "cuda"
@@ -44,6 +41,7 @@ class BackgroundAblator(Preprocessor):
                                                                            iou_thresh=detectron2_iou_thresh)
             self.means = torch.tensor(means, dtype=torch.float32, device=self._device).view(1,3,1,1,1)
 
+        self.is_input_normalized = is_input_normalized
 
     @property
     def apply_fit(self):
@@ -82,8 +80,8 @@ class BackgroundAblator(Preprocessor):
 
 
     def estimate_gradient(self, x, grad):
-        if self.perturb_whole_frame:
-            # For educational purpose only.
+        if self.ignore_mask_gradient:
+            # We do this because _estimate_gradient() is not effective on Detectron2 yet.
             return self._passthrough_gradient(x, grad)
         else:
             return self._estimate_gradient(x, grad)
@@ -93,23 +91,24 @@ class BackgroundAblator(Preprocessor):
         self.detectron2_model.eval()
         # Example x: torch.Size([4, 3, 16, 112, 112]) [0,255]
         x = x / 255.
+
+        if x.max() > 1 or x.min() < 0:
+            raise Exception("Expect x in [0, 1], but it is in [%s, %s]" % (x.min(), x.max()))
+
         nb_clips, _nb_channels, group_size, _height, _weight = x.shape
         masks = torch.zeros((nb_clips, 1, group_size, _height, _weight), dtype=torch.float32, device=self._device)
         for i in range(nb_clips):
-            for j in range(group_size):
-                img = x[i,:,j,:,:]
-                # Create inputs for Detectron2 model
-                batched_inputs = create_inputs([img], input_format='BGR')
-                # Run inference on examples
-                batched_outputs = self.detectron2_model.inference(batched_inputs)
-
-                pred_masks = batched_outputs[0]['instances'].pred_masks
-                # Aggregate binary masks, resulting in {0,1} torch.int64.
-                # TODO: We may threshold the masks here.
-                # FIXME: The code that pre-compute masks might be wrong by ignoring clamp()
-                mask = torch.sum(pred_masks, dim=0).clamp(0,1)
-                mask = mask.to(torch.float32)
-                masks[i,0,j,:,:] = mask
+            # Swap clips and channels so we can feed these clips in all at once. Contribution from Cory.
+            imgs = x[i,:,:,:,:].permute((1, 0, 2, 3))
+            # Create inputs for Detectron2 model
+            batched_inputs = create_inputs(imgs, input_format='BGR')
+            # Run inference on examples
+            batched_outputs = self.detectron2_model.inference(batched_inputs)
+            # Aggregate binary masks using any, i.e., an OR over boolean mask values
+            # It usually returns bool, but 0s in uint8 if no instance detected. Safer to convert to float32.
+            batched_masks = [outputs['instances'].pred_masks.any(dim=0).to(torch.float32) for outputs in batched_outputs]
+            batched_masks_stack = torch.stack(batched_masks)
+            masks[i, 0, :, :, :] = batched_masks_stack
         return masks
 
 
@@ -119,21 +118,12 @@ class BackgroundAblator(Preprocessor):
 
         # The MARS pipeline gives float normalized inputs;
         # while our lite pipeline gives uint8 unnormalized inputs.
-        if x.dtype == torch.uint8:
-            is_input_normalized = False
-        else:
-            is_input_normalized = True
-            # Denormalize input for Detectron2 to consume.
+        if self.is_input_normalized:
             x = x + self.means
 
         nb_channels = x.shape[1]
         if nb_channels != 3 and nb_channels !=4:
             raise Exception("Unusual input shape: ", x.shape)
-
-        if self.mid_clip_only:
-            b_size = x.shape[0]
-            mid_idx = int(b_size / 2)
-            x = x[mid_idx:mid_idx+1,:,:,:,:]
 
         # No pre-computed masks from the data pipeline.
         # Run detectron2 on raw frames or 112x112 frames.
@@ -158,12 +148,8 @@ class BackgroundAblator(Preprocessor):
         x = imgs * masks
 
         # The output is not normalized if the input is not.
-        if not is_input_normalized:
+        if not self.is_input_normalized:
             x = x + self.means
-
-        if self.mid_clip_only:
-            # Restore the shape so that Art.Attack won't complain.
-            x = x.repeat(b_size, 1, 1, 1, 1)
 
         return x
 

@@ -1,3 +1,10 @@
+#
+# Copyright (C) 2020 Intel Corporation
+#
+# Licensed subject to the terms of the separately executed evaluation license
+# agreement between Intel Corporation and you.
+#
+
 import numpy as np
 import torch
 from art.classifiers import PyTorchClassifier
@@ -10,9 +17,12 @@ import torch.nn.functional as F
 # This is a lite preprocessing function for the data pipeline.
 # We group video frames into clips of 16 consequtive frames here.
 #   so that art.Attack won't complain the shape of MARS' prediction.
+# Further, we only take the middle clip of a video so that slow defenses
+#   run in reasonable time.
 # Return (nb_clips, nb_channels, clip_size, height, width)
 # TODO: Pad to 16 frames if video is too short.
-def preprocessing_fn(inputs, clip_size=16):
+# FIXME: Armory's scenario cannot configure this function.
+def preprocessing_fn(inputs, clip_size=16, mid_clip_only=False):
     for i in range(len(inputs)):
         x = inputs[i]
 
@@ -22,6 +32,16 @@ def preprocessing_fn(inputs, clip_size=16):
         nb_frames_removed = nb_frames % clip_size
         if nb_frames > clip_size and nb_frames_removed > 0:
             x = x[:-nb_frames_removed]
+
+        # We only take the middle clip of 16 consecutive frames from a video
+        #  so that Detectron2 on-the-fly is not too slow.
+        # We have to do this in the data pipeline, because the Armory scenario
+        #   let art.attack get the shape of x directly.
+        if mid_clip_only:
+            mid_clip_idx = int(nb_clips / 2)
+            starting_frame_idx = mid_clip_idx * clip_size
+            x = x[starting_frame_idx:starting_frame_idx+clip_size]
+            nb_clips = 1
 
         # Reshape as several clips of 16 consequtive frames.
         x_clips = x.reshape(nb_clips, clip_size, height, width, nb_channels)
