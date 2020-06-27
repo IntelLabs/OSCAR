@@ -104,9 +104,19 @@ class BackgroundAblator(Preprocessor):
             batched_inputs = create_inputs(imgs, input_format='BGR')
             # Run inference on examples
             batched_outputs = self.detectron2_model.inference(batched_inputs)
-            # Aggregate binary masks using any, i.e., an OR over boolean mask values
-            # It usually returns bool, but 0s in uint8 if no instance detected. Safer to convert to float32.
-            batched_masks = [outputs['instances'].pred_masks.any(dim=0).to(torch.float32) for outputs in batched_outputs]
+
+            batched_masks = []
+            for outputs in batched_outputs:
+                # No object detected, then no ablation.
+                # FIXME: It might end up no detection after centrol cropping later.
+                #         Should have an area threshold here.
+                if len(outputs['instances']) == 0:
+                    height, width = outputs['instances'].image_size
+                    mask = torch.ones((height, width), dtype=torch.bool, device=self._device)
+                else:
+                    mask = outputs['instances'].pred_masks.any(dim=0)
+                batched_masks.append(mask)
+
             batched_masks_stack = torch.stack(batched_masks)
             masks[i, 0, :, :, :] = batched_masks_stack
         return masks

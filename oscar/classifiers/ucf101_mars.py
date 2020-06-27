@@ -77,7 +77,12 @@ class MarsPreprocess(torch.nn.Module):
         # Degrouping as NCHW.
         x_nchw = x_nschw.reshape(nb_clips * clip_size, nb_channels, height, width)
         # Resizing
-        x_nchw = F.interpolate(x_nchw, size=(height_out, width_out), mode="bilinear", align_corners=True)
+        # Note: MARS uses bilinear, but Pytorch has nearest by default.
+        #   Bilinear brings more aggressive perturbations, because every pixel has a gradient;
+        #    while only the "nearest" pixel has a gradient in the nearest mode.
+        #   In general, "nearest" should produces adversarial images that are easier for Detectron2,
+        #    if Detectron2's gradient is not considered.
+        x_nchw = F.interpolate(x_nchw, size=(height_out, width_out), mode='nearest')
         # Central crop to 112x112
         if width_out != frame_size and height_out == frame_size:
             width_start = (width_out - frame_size) // 2
