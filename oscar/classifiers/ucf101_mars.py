@@ -1,183 +1,277 @@
-#
-# Copyright (C) 2020 Intel Corporation
-#
-# Licensed subject to the terms of the separately executed evaluation license
-# agreement between Intel Corporation and you.
-#
+"""
+Model contributed by: MITRE Corporation
+Adapted from: https://github.com/craston/MARS
+Intel modified to add model_kwargs to opts
+"""
+import logging
+from typing import Union, Optional, Tuple, Any
 
+from art.classifiers import PyTorchClassifier
 import numpy as np
 import torch
-from art.classifiers import PyTorchClassifier
-from armory.baseline_models.pytorch.ucf101_mars import make_model, DEVICE
-from MARS.dataset.preprocess_data import get_mean as get_ucf101_mean
-from art.utils import check_and_transform_label_format
-import torch.nn.functional as F
+from torch import optim
 
+from MARS.opts import parse_opts
+from MARS.models.model import generate_model
 
-# This is a lite preprocessing function for the data pipeline.
-# We group video frames into clips of 16 consequtive frames here.
-#   so that art.Attack won't complain the shape of MARS' prediction.
-# Further, we only take the middle clip of a video so that slow defenses
-#   run in reasonable time.
-# Return (nb_clips, nb_channels, clip_size, height, width)
-# TODO: Pad to 16 frames if video is too short.
-# FIXME: Armory's scenario cannot configure this function.
-def preprocessing_fn(inputs, clip_size=16, mid_clip_only=False):
-    for i in range(len(inputs)):
-        x = inputs[i]
+from armory.baseline_models.pytorch.ucf101_mars import DEVICE, preprocessing_fn, MEAN, STD
 
-        # Remove at most (clip_size-1) frames
-        nb_frames, height, width, nb_channels = x.shape
-        nb_clips = int(nb_frames / clip_size)
-        nb_frames_removed = nb_frames % clip_size
-        if nb_frames > clip_size and nb_frames_removed > 0:
-            x = x[:-nb_frames_removed]
+logger = logging.getLogger(__name__)
 
-        # We only take the middle clip of 16 consecutive frames from a video
-        #  so that Detectron2 on-the-fly is not too slow.
-        # We have to do this in the data pipeline, because the Armory scenario
-        #   let art.attack get the shape of x directly.
-        if mid_clip_only:
-            mid_clip_idx = int(nb_clips / 2)
-            starting_frame_idx = mid_clip_idx * clip_size
-            x = x[starting_frame_idx:starting_frame_idx+clip_size]
-            nb_clips = 1
+def preprocessing_fn_torch(
+    batch: Union[torch.Tensor, np.ndarray],
+    consecutive_frames: int = 16,
+    scale_first: bool = True,
+    align_corners: bool = False,
+    mean: np.ndarray = MEAN,
+    std: np.ndarray = STD,
+):
+    """
+    inputs - batch of videos each with shape (frames, height, width, channel)
+    outputs - batch of videos each with shape (n_stack, channel, stack_frames, new_height, new_width)
+        frames = n_stack * stack_frames (after padding)
+        new_height = new_width = 112
+    consecutive_frames - number of consecutive frames (stack_frames)
 
-        # Reshape as several clips of 16 consequtive frames.
-        x_clips = x.reshape(nb_clips, clip_size, height, width, nb_channels)
-        x_clips = np.transpose(x_clips, (0,4,1,2,3))
-        # Keep uint8 to indicate non-normalization.
-        inputs[i] = x_clips
-    return inputs
+    After resizing, a center crop is performed to make the image square
 
+    This is a differentiable alternative to MARS' PIL-based preprocessing.
+        There are some
+    """
+    if not isinstance(batch, torch.Tensor):
+        logger.warning(f"batch {type(batch)} is not a torch.Tensor. Casting")
+        batch = torch.from_numpy(batch).to(DEVICE)
+        # raise ValueError(f"batch {type(batch)} is not a torch.Tensor")
+    if batch.dtype != torch.float32:
+        raise ValueError(f"batch {batch.dtype} should be torch.float32")
+    if batch.shape[0] != 1:
+        raise ValueError(f"Batch size {batch.shape[0]} != 1")
+    video = batch[0]
 
-# A MARS preprocessing layer which resizes and normalizes images.
-class MarsPreprocess(torch.nn.Module):
-    def __init__(self, frame_size, means):
-        super().__init__()
-        self.frame_size = frame_size
-        self.register_buffer('means', torch.tensor(means, dtype=torch.float32).view(1,3,1,1,1))
+    if video.ndim != 4:
+        raise ValueError(
+            f"video dims {video.ndim} != 4 (frames, height, width, channel)"
+        )
+    if video.shape[0] < 1:
+        raise ValueError("video must have at least one frame")
+    if tuple(video.shape[1:3]) == (240, 320):
+        standard_shape = True
+    elif tuple(video.shape[1:3]) == (226, 400):
+        logger.warning("Expected odd example shape (226, 400, 3)")
+        standard_shape = False
+    else:
+        raise ValueError(f"frame shape {tuple(video.shape[1:])} not recognized")
+    if video.max() > 1.0 or video.min() < 0.0:
+        raise ValueError("input should be float32 in [0, 1] range")
+    if not isinstance(consecutive_frames, int):
+        raise ValueError(f"consecutive_frames {consecutive_frames} must be an int")
+    if consecutive_frames < 1:
+        raise ValueError(f"consecutive_frames {consecutive_frames} must be positive")
 
+    # Select a integer multiple of consecutive frames
+    while len(video) < consecutive_frames:
+        # cyclic pad if insufficient for a single stack
+        video = torch.cat([video, video[: consecutive_frames - len(video)]])
+    if len(video) % consecutive_frames != 0:
+        # cut trailing frames
+        video = video[: len(video) - (len(video) % consecutive_frames)]
 
-    def forward(self, x):
-        frame_size = self.frame_size
-        # Input: (nb_clips, nb_channels, clip_size, height, width) [0, 255]
-        # Output:(nb_clips, nb_channels, clip_size, frame_size, frame_size), normalized.
-        nb_clips, nb_channels, clip_size, height, width = x.shape
-        x_nschw = x.permute(0,2,1,3,4)
+    if scale_first:
+        # Attempts to directly follow MARS approach
+        # (frames, height, width, channel) to (frames, channel, height, width)
+        video = video.permute(0, 3, 1, 2)
+        if standard_shape:  # 240 x 320
+            sample_height, sample_width = 112, 149
+        else:  # 226 x 400
+            video = video[:, :, 1:-1, :]  # crop top/bottom pixels, reduce by 2
+            sample_height, sample_width = 112, 200
 
-        # Resize the shorter edge to 112 while keeping the spatial ratio
-        if width < height:
-            width_out = frame_size
-            height_out = int(frame_size * height / width)
-        else:
-            height_out = frame_size
-            width_out = int(frame_size * width / height)
-
-        # Degrouping as NCHW.
-        x_nchw = x_nschw.reshape(nb_clips * clip_size, nb_channels, height, width)
-        # Resizing
-        # Note: MARS uses bilinear, but Pytorch has nearest by default.
-        #   Bilinear brings more aggressive perturbations, because every pixel has a gradient;
-        #    while only the "nearest" pixel has a gradient in the nearest mode.
-        #   In general, "nearest" should produces adversarial images that are easier for Detectron2,
-        #    if Detectron2's gradient is not considered.
-        x_nchw = F.interpolate(x_nchw, size=(height_out, width_out), mode='nearest')
-        # Central crop to 112x112
-        if width_out != frame_size and height_out == frame_size:
-            width_start = (width_out - frame_size) // 2
-            x_nchw = x_nchw[:,:,:,width_start:width_start+frame_size]
-        elif height_out != frame_size and width_out == frame_size:
-            height_start = (height_out - frame_size) // 2
-            x_nchw = x_nchw[:,:,height_start:height_start+frame_size,:]
-        else:
-            raise Exception("Unusal situation that we have {:d}x{:d} image after resizeing".format(width_out, height_out))
-
-        # Regrouping as 16-frame-clips.
-        x_clips = x_nchw.view(nb_clips, clip_size, nb_channels, frame_size, frame_size)
-
-        # Moved the channel dimension to the second.
-        x_clips = x_clips.permute(0,2,1,3,4)
-
-        # Normalization RGB with mean. Alpha with zero-mean.
-        x_clips[:,:3,:,:,:] -= self.means
-        return x_clips
-
-    def extra_repr(self):
-        return 'MARS preprocessing which resizes images to {}x{} and normalizes by means {}'.format(
-            self.frame_size,
-            self.frame_size,
-            self.means.squeeze()
+        video = torch.nn.functional.interpolate(
+            video,
+            size=(sample_height, sample_width),
+            mode="bilinear",
+            align_corners=align_corners,
         )
 
+        if standard_shape:
+            crop_left = 18  # round((149 - 112)/2.0)
+        else:
+            crop_left = 40
+        video = video[:, :, :, crop_left : crop_left + sample_height]
 
-# Run predict() in one batch and no_grad().
-#  Note: The batch_size is ignored, so no need to change the scenario definition.
-class EfficientPyTorchClassifier(PyTorchClassifier):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    else:
+        # More efficient, but not MARS approach
+        # Center crop
+        sample_size = 112
+        if standard_shape:
+            crop_width = 40
+        else:
+            video = video[:, 1:-1, :, :]
+            crop_width = 88
+        video = video[:, :, crop_width:-crop_width, :]
+
+        # Downsample to (112, 112) frame size
+        # (frames, height, width, channel) to (frames, channel, height, width)
+        video = video.permute(0, 3, 1, 2)
+        video = torch.nn.functional.interpolate(
+            video,
+            size=(sample_size, sample_size),
+            mode="bilinear",
+            align_corners=align_corners,
+        )
+
+    if video.max() > 1.0:
+        raise ValueError("Video exceeded max after interpolation")
+    if video.min() < 0.0:
+        raise ValueError("Video under min after interpolation")
+
+    # reshape into stacks of frames
+    video = torch.reshape(video, (-1, consecutive_frames) + video.shape[1:])
+
+    # transpose to (stacks, channel, stack_frames, height, width)
+    video = video.permute(0, 2, 1, 3, 4)
+    # video = torch.transpose(video, axes=(0, 4, 1, 2, 3))
+
+    # normalize before changing channel position?
+    video = torch.transpose(video, 1, 4)
+    video = ((video * 255) - torch.from_numpy(mean).to(DEVICE)) / torch.from_numpy(
+        std
+    ).to(DEVICE)
+    video = torch.transpose(video, 4, 1)
+
+    return video
 
 
-    def predict(self, x, batch_size=128, **kwargs):
+def make_model(
+    model_status: str = "ucf101_trained", weights_path: Optional[str] = None, **model_kwargs
+) -> Tuple[torch.nn.DataParallel, optim.SGD]:
+    statuses = ("ucf101_trained", "kinetics_pretrained")
+    if model_status not in statuses:
+        raise ValueError(f"model_status {model_status} not in {statuses}")
+    trained = model_status == "ucf101_trained"
+    if not trained and weights_path is None:
+        raise ValueError("weights_path cannot be None for 'kinetics_pretrained'")
+
+    opt = parse_opts(arguments=[])
+    opt.dataset = "UCF101"
+    opt.only_RGB = True
+    opt.log = 0
+    opt.batch_size = 1
+    opt.arch = f"{opt.model}-{opt.model_depth}"
+
+    if trained:
+        opt.n_classes = 101
+    else:
+        opt.n_classes = 400
+        opt.n_finetune_classes = 101
+        opt.batch_size = 32
+        opt.ft_begin_index = 4
+
+        opt.pretrain_path = weights_path
+
+    # Merge model_kwargs from config into MARS's opt
+    logger.info("Merging opts from config..")
+    for key, value in model_kwargs.items():
+        if not hasattr(opt, key):
+            logger.info(f"  Skipping {key} = {value}")
+        old_value = getattr(opt, key)
+        logger.info(f"  opt.{key} = {value} (was {old_value})")
+        setattr(opt, key, value)
+
+    logger.info(f"Loading model... {opt.model} {opt.model_depth}")
+    model, parameters = generate_model(opt)
+
+    if trained and weights_path is not None:
+        checkpoint = torch.load(weights_path, map_location=DEVICE)
+        model.load_state_dict(checkpoint["state_dict"])
+
+    # Initializing the optimizer
+    if opt.pretrain_path:
+        opt.weight_decay = 1e-5
+        opt.learning_rate = 0.001
+    if opt.nesterov:
+        dampening = 0
+    else:
+        dampening = opt.dampening
+
+    optimizer = optim.SGD(
+        parameters,
+        lr=opt.learning_rate,
+        momentum=opt.momentum,
+        dampening=dampening,
+        weight_decay=opt.weight_decay,
+        nesterov=opt.nesterov,
+    )
+
+    return model, optimizer
+
+
+class OuterModel(torch.nn.Module):
+    def __init__(
+        self,
+        weights_path: Optional[str],
+        max_frames: Optional[int] = 0,
+        preprocessing_consecutive_frames: Optional[int] = 16,
+        preprocessing_scale_first: Optional[bool] = True,
+        preprocessing_align_corners: Optional[bool] = False,
+        preprocessing_mean: Optional[Union[list, np.ndarray]] = MEAN,
+        preprocessing_std: Optional[Union[list, np.ndarray]] = STD,
+        **model_kwargs,
+    ):
         """
-        Perform prediction for a batch of inputs.
-
-        :param x: Test set.
-        :type x: `np.ndarray`
-        :param batch_size: Size of batches.
-        :type batch_size: `int`
-        :return: Array of predictions of shape `(nb_inputs, nb_classes)`.
-        :rtype: `np.ndarray`
+        Max frames is the maximum number of input frames.
+            If max_frames == 0, False, no clipping is done
+            Else if max_frames > 0, frames are clipped to that number.
+            This can be helpful for smaller memory cards.
         """
+        super().__init__()
+        max_frames = int(max_frames)
+        if max_frames < 0:
+            raise ValueError(f"max_frames {max_frames} cannot be negative")
+        self.max_frames = max_frames
+        self.model, self.optimizer = make_model(
+            weights_path=weights_path, **model_kwargs
+        )
 
-        # Apply preprocessing
-        x_preprocessed, _ = self._apply_preprocessing(x, y=None, fit=False)
+        # Preprocessing-related options
+        self.preprocessing_consecutive_frames = preprocessing_consecutive_frames
+        self.preprocessing_scale_first = preprocessing_scale_first
+        self.preprocessing_align_corners = preprocessing_align_corners
+        self.preprocessing_mean = np.array(preprocessing_mean, dtype=np.float32)
+        self.preprocessing_std = np.array(preprocessing_std, dtype=np.float32)
 
-        # Run prediction in one batch and no_grad().
-        x_pth = torch.from_numpy(x_preprocessed)
-        with torch.no_grad():
-            x_cuda = x_pth.to(self._device)
-            results_cuda = self._model(x_cuda)
-            results = results_cuda[0].detach().cpu().numpy()
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.max_frames:
+            x = x[:, : self.max_frames]
 
-        # Apply postprocessing
-        predictions = self._apply_postprocessing(preds=results, fit=False)
+        if self.training:
+            # Use preprocessing_fn_numpy in dataset preprocessing
+            return self.model(x)
+        else:
+            x = preprocessing_fn_torch(x, self.preprocessing_consecutive_frames,
+                                          self.preprocessing_scale_first,
+                                          self.preprocessing_align_corners,
+                                          self.preprocessing_mean,
+                                          self.preprocessing_std)
+            stack_outputs = self.model(x)
+            output = stack_outputs.mean(axis=0, keepdims=True)
 
-        return predictions
+        return output
 
 
-# Make clip_values works with RGBA input.
-# FIXME: Make a switch between 3 and 4 channels so that the model
-#        also works with the official data pipeline which gives 3-channel input.
-def get_art_model(model_kwargs, wrapper_kwargs, weights_file):
-    # FIXME: We may find a better place for clipping parameters outside this function.
-    preprocess_input_channels = model_kwargs.pop('preprocess_input_channels', 3)
-
-    activity_means = get_ucf101_mean('activitynet')
-    if preprocess_input_channels == 4:
-        activity_means += [0.]
-    activity_means = np.array(activity_means, dtype=np.float32)
-
-    # The input_shape of MARS is fixed, no matter where we perform pre-processing.
-    # But the clip_values for attack should match the return of preprocessing_fn().
-    # We broadcast the shape since v_PommelHorse_g05_c03 is 400x226 instead of 320x240.
-    clip_values = (0., 255.)
-
-    model, optimizer = make_model(weights_file=weights_file, **model_kwargs)
-
-    # Insert MARS preprocessing into the head of the model.
-    mars_preprocess_layer = MarsPreprocess(frame_size=112, means=get_ucf101_mean('activitynet'))
-    model.module.conv1 = torch.nn.Sequential(mars_preprocess_layer, model.module.conv1)
-
+def get_art_model(
+    model_kwargs: dict, wrapper_kwargs: dict, weights_path: Optional[str] = None
+) -> PyTorchClassifier:
+    model = OuterModel(weights_path=weights_path, **model_kwargs)
     model.to(DEVICE)
 
-    wrapped_model = EfficientPyTorchClassifier(
-        model=model,
+    wrapped_model = PyTorchClassifier(
+        model,
         loss=torch.nn.CrossEntropyLoss(),
-        optimizer=optimizer,
-        input_shape=(3, 16, 112, 112),
+        optimizer=model.optimizer,
+        input_shape=(None, 240, 320, 3),
         nb_classes=101,
+        clip_values=(0.0, 1.0),
         **wrapper_kwargs,
-        clip_values=clip_values,
     )
     return wrapped_model

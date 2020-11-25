@@ -184,7 +184,7 @@ class Detectron2Classifier(Classifier, ClassifierNeuralNetwork, ClassifierGradie
             else:
                 # XXX: What happens if there are no detections? Doesn't seem like there is a way
                 #      to obstain from making a prediction.
-                logger.warn('Nothing detected in image!')
+                logger.warning('Nothing detected in image!')
 
         # TODO: Should _apply_postprocessing
 

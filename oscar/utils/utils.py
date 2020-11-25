@@ -21,6 +21,9 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.structures.instances import Instances
 from detectron2.structures.boxes import Boxes
 
+import pytorch_lightning as pl
+
+
 def read_image(path):
     """
         Read image from disk.
@@ -38,12 +41,14 @@ def read_image(path):
 
     return image
 
+
 def read_images(*paths):
     """
         See `read_image`.
     """
     # FIXME: It would be nice if read_image comprehended lists and this function went away.
     return [read_image(path) for path in paths]
+
 
 def image_to_tensor(image, gamma=1.):
     """
@@ -60,11 +65,16 @@ def image_to_tensor(image, gamma=1.):
         # FIXME: This will only work when images have the same shape
         image = np.array(image)
 
-    # TODO: Warn when image pixels are not in [0, 255] range.
+    if image.min() < 0 or image.max() > 255:
+        raise Exception("Unusual image range [", x.min(), ",", x.max(), "]; expected [0, 255].")
+    if image.max() <= 1:
+        raise Exception("Unusual image range max", x.max(), "; expected more image pixel values to be greater than 1.")
+
     image = image.astype('float32') / 255.
     image = np.power(image, gamma)
 
     return kornia.image_to_tensor(image)
+
 
 def tensor_to_image(tensor, gamma=1.):
     """
@@ -77,8 +87,10 @@ def tensor_to_image(tensor, gamma=1.):
         Returns:
             list[numpy.ndarray]: Image in HWC format with pixels in [0, 255] range.
     """
-    # TODO: Warn when tensor values are not in [0, 1] range.
-    tensor = torch.pow(tensor, 1/gamma)
+    if tensor.min() < 0 or tensor.max() > 1:
+        raise Exception("Unusual tensor range [", tensor.min(), ",", tensor.max(), "]; expected [0, 1].")
+
+    tensor = torch.pow(tensor, 1 / gamma)
     image = kornia.tensor_to_image(tensor)
 
     if len(image.shape) == 2:
@@ -90,6 +102,7 @@ def tensor_to_image(tensor, gamma=1.):
     image = np.round(image * 255.).astype('uint8')
 
     return image
+
 
 def create_model(config_path, weights_path, device='cuda', score_thresh=None, iou_thresh=None):
     """
@@ -113,7 +126,7 @@ def create_model(config_path, weights_path, device='cuda', score_thresh=None, io
     if iou_thresh is not None:
         # FIXME: Why is this a list?
         cfg.MODEL.ROI_HEADS.IOU_THRESHOLDS = [iou_thresh]
-    cfg.MODEL.DEVICE = device
+    cfg.MODEL.DEVICE = str(device)
 
     # Create model to attack...
     model = build_model(cfg)
@@ -130,6 +143,7 @@ def create_model(config_path, weights_path, device='cuda', score_thresh=None, io
     metadata = MetadataCatalog.get(cfg.DATASETS.TEST[0])
 
     return model, metadata
+
 
 def composite_renders_on_backgrounds(renders, backgrounds):
     """
@@ -154,7 +168,7 @@ def composite_renders_on_backgrounds(renders, backgrounds):
             # TODO: Use box blur?
 
             # Composite onto background
-            composite = render_rgb*render_alpha + background*(1 - render_alpha)
+            composite = render_rgb * render_alpha + background * (1 - render_alpha)
 
             # Gaussian blur composite image
             #composite = kornia.filters.gaussian_blur2d(composite, (3, 3), (sigma, sigma))
@@ -166,6 +180,7 @@ def composite_renders_on_backgrounds(renders, backgrounds):
             images.append(composite)
 
     return images
+
 
 def compute_bounding_boxes(alphas, multiple=1):
     """
@@ -215,7 +230,8 @@ def compute_bounding_boxes(alphas, multiple=1):
 
     return bboxes
 
-def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', gamma=1.):
+
+def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', gamma=1., transforms=None):
     """
         Creates inputs for Detectron2 model from images with specified groundtruth bounding boxes and class.
         Will convert image-channel format to specified format and add gamma correction to images.
@@ -239,6 +255,9 @@ def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', g
         if not isinstance(image, torch.Tensor):
             image = image_to_tensor(image)
 
+        if image.min() < 0 or image.max() > 1:
+            raise Exception("Unusual tensor range [", image.min(), ",", image.max(), "]; expected [0, 1].")
+
         # Flip channels as necessary
         if input_format == 'BGR':
             image = image.flip(0)
@@ -247,14 +266,24 @@ def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', g
         image = image.pow(gamma)
 
         # Quantize image
-        image = torch.fake_quantize_per_tensor_affine(image, scale=1/255, zero_point=0, quant_min=0, quant_max=255)
+        image = torch.fake_quantize_per_tensor_affine(image, scale=1 / 255, zero_point=0, quant_min=0, quant_max=255)
 
         # Model wants image between [0, 255]
         image *= 255
 
-        inputs['image'] = image
+        # Set height and width to the size of the original image (before resizing), which is the desired output image size.
         inputs['height'] = image.shape[1]
         inputs['width'] = image.shape[2]
+
+        if transforms is not None:
+            # CHW -> HWC for resizing purpose
+            original_image = image.permute(1, 2, 0).cpu().detach().numpy().astype('uint8')
+            resized_image = transforms.get_transform(original_image).apply_image(original_image)
+            # HWC -> CHW for detectron2 model
+            resized_image = resized_image.transpose(2, 0, 1)
+            image = torch.as_tensor(resized_image.astype("float32"))
+
+        inputs['image'] = image
 
         if gt_bboxes is not None and gt_classes is not None:
             inputs['instances'] = Instances(image.shape[1:3])
@@ -264,6 +293,7 @@ def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', g
         batched_inputs.append(inputs)
 
     return batched_inputs
+
 
 def print_tensor(*args):
     """
@@ -289,6 +319,7 @@ def print_tensor(*args):
             print_args.append(arg)
 
     print(*print_args)
+
 
 def plot_images(images, bboxes=None, model=None, metadata=None, col_wrap=5, scale=0.25, gamma=1.):
     """
@@ -344,7 +375,7 @@ def plot_images(images, bboxes=None, model=None, metadata=None, col_wrap=5, scal
         else:
             # Scale image
             width, height, _ = image.shape
-            image = cv2.resize(image, (int(round(height*scale + 1e-2)), int(round(width*scale + 1e-2))))
+            image = cv2.resize(image, (int(round(height * scale + 1e-2)), int(round(width * scale + 1e-2))))
 
         if i == 0:
             if isinstance(images, list):
@@ -354,12 +385,12 @@ def plot_images(images, bboxes=None, model=None, metadata=None, col_wrap=5, scal
 
             rows = ((nimages + col_wrap - 1) // col_wrap)
             cols = col_wrap
-            size = (cols*image.shape[1]/72, rows*image.shape[0]/72)
+            size = (cols * image.shape[1] / 72, rows * image.shape[0] / 72)
 
             plt.figure(figsize=size, facecolor=(0.8, 0.8, 0.8))
             plt.subplots_adjust(top=1, bottom=0, right=1, left=0.01, hspace=0., wspace=0.01)
 
-        plt.subplot(rows, cols, i+1)
+        plt.subplot(rows, cols, i + 1)
         if len(image.shape) == 2 or image.shape[2] == 1:
             plt.imshow(image, cmap='gray')
         else:
@@ -368,3 +399,41 @@ def plot_images(images, bboxes=None, model=None, metadata=None, col_wrap=5, scal
 
     plt.show()
 
+
+# FIXME: The result is consistent when running on one GPU.
+#       But the result on multiple GPUs are not consistent yet.
+class AccuracyTopk(pl.metrics.Accuracy):
+
+    def __init__(
+        self,
+        k: int = 1,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.k = k
+
+    def _input_format(self, preds: torch.Tensor, target: torch.Tensor):
+        if not (len(preds.shape) == len(target.shape) or len(preds.shape) == len(target.shape) + 1):
+            raise ValueError(
+                "preds and target must have same number of dimensions, or one additional dimension for preds")
+
+        if len(preds.shape) == len(target.shape) + 1:
+            # multi class probabilites
+            preds = preds.topk(self.k, dim=1)[1][0]
+
+        if len(preds.shape) == len(target.shape) and preds.dtype == torch.float:
+            # binary or multilabel probablities
+            preds = (preds >= self.threshold).long()
+        return preds, target
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        """
+        Update state with predictions and targets.
+        Args:
+            preds: Predictions from model
+            target: Ground truth values
+        """
+        preds, target = self._input_format(preds, target)
+
+        self.correct += torch.tensor(target in preds).type_as(target)
+        self.total += target.numel()
