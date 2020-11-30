@@ -20,6 +20,7 @@ class PalettedSemanticSegmentor(PreprocessorPyTorch):
     """
 
     def __init__(self,
+                 mask_color,
                  detectron2_config_path,
                  detectron2_weights_path,
                  detectron2_score_thresh=0.5,
@@ -40,6 +41,8 @@ class PalettedSemanticSegmentor(PreprocessorPyTorch):
         if self.palette is None:
             self.palette = torch.tensor(self.detectron2.metadata.thing_colors, dtype=torch.int32, device=self._device) / 255
 
+        self.mask_color = torch.tensor(mask_color, dtype=torch.float32, device=self._device)
+
     def forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> Tuple["torch.Tensor", Optional["torch.Tensor"]]:
         assert len(x.shape) == 5
         assert x.shape[4] == 3
@@ -47,9 +50,10 @@ class PalettedSemanticSegmentor(PreprocessorPyTorch):
 
         nb_batch, nb_frames, height, width, nb_channels = x.shape
 
-        # Paletted semantic maps default background is 0
+        # Paletted semantic maps default background is to mask_color
         nb_channels = self.palette.shape[1]
-        seg_maps = torch.zeros((nb_batch, nb_frames, height, width, nb_channels), dtype=torch.float32, device=self._device)
+        background = torch.ones((nb_batch, nb_frames, height, width, nb_channels), dtype=torch.float32, device=self._device)
+        seg_maps = background * self.mask_color
 
         for i, x_batch in enumerate(x):
             predictions, _ = self.detectron2.forward(x_batch)

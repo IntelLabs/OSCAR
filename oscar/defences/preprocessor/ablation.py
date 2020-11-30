@@ -26,7 +26,7 @@ class BackgroundAblator(PreprocessorPyTorch):
                  enforce_binary_masks=True,
                  detectron2_config_path=None,
                  detectron2_weights_path=None,
-                 detectron2_score_thresh=None,
+                 detectron2_score_thresh=0.5,
                  detectron2_iou_thresh=None,
                  detectron2_device_type='gpu',
                  device_type='gpu') -> None:
