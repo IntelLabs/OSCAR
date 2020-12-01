@@ -10,13 +10,160 @@ from art.classifiers import PyTorchClassifier
 import numpy as np
 import torch
 from torch import optim
+from torch import nn
 
 from MARS.opts import parse_opts
 from MARS.models.model import generate_model
+import math
+import MARS.models.model
 
 from armory.baseline_models.pytorch.ucf101_mars import DEVICE, preprocessing_fn, MEAN, STD
 
 logger = logging.getLogger(__name__)
+
+# XXX: Copied from MARS with slight modification
+class ResNeXt(nn.Module):
+
+    def __init__(self,
+                 block,
+                 layers,
+                 sample_size,
+                 sample_duration,
+                 shortcut_type='B',
+                 cardinality=32,
+                 num_classes=400,
+                 input_channels=3,
+                 output_layers=[]):
+        logger.info("Loading modified ResNeXt model...")
+        self.inplanes = 64
+        super(ResNeXt, self).__init__()
+        # XXX: Begin Modification
+        self.conv0 = None
+        self.bn0 = None
+        if input_channels > 3:
+            self.conv0 = nn.Conv3d(
+                input_channels,
+                3,
+                kernel_size=1,
+                bias=False)
+            self.bn0 = nn.BatchNorm3d(3)
+            input_channels = 3
+        # XXX: End Modification
+
+        self.conv1 = nn.Conv3d(
+            input_channels,
+            64,
+            kernel_size=7,
+            stride=(1, 2, 2),
+            padding=(3, 3, 3),
+            bias=False)
+
+        self.bn1 = nn.BatchNorm3d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 128, layers[0], shortcut_type,
+                                       cardinality)
+        self.layer2 = self._make_layer(
+            block, 256, layers[1], shortcut_type, cardinality, stride=2)
+        self.layer3 = self._make_layer(
+            block, 512, layers[2], shortcut_type, cardinality, stride=2)
+        self.layer4 = self._make_layer(
+            block, 1024, layers[3], shortcut_type, cardinality, stride=2)
+        last_duration = int(math.ceil(sample_duration / 16))
+        last_size = int(math.ceil(sample_size / 32))
+        self.avgpool = nn.AvgPool3d(
+            (last_duration, last_size, last_size), stride=1)
+        self.fc = nn.Linear(cardinality * 32 * block.expansion, num_classes)
+
+        #layer to output on forward pass
+        self.output_layers = output_layers
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
+            elif isinstance(m, nn.BatchNorm3d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self,
+                    block,
+                    planes,
+                    blocks,
+                    shortcut_type,
+                    cardinality,
+                    stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            if shortcut_type == 'A':
+                downsample = partial(
+                    downsample_basic_block,
+                    planes=planes * block.expansion,
+                    stride=stride)
+            else:
+                downsample = nn.Sequential(
+                    nn.Conv3d(
+                        self.inplanes,
+                        planes * block.expansion,
+                        kernel_size=1,
+                        stride=stride,
+                        bias=False), nn.BatchNorm3d(planes * block.expansion))
+
+        layers = []
+        layers.append(
+            block(self.inplanes, planes, cardinality, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, cardinality))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        #pdb.set_trace()
+        # XXX: Begin Modification
+        if self.conv0 is not None:
+            x = self.conv0(x)
+            x = self.bn0(x)
+            x = self.relu(x)
+        # XXX: End Modification
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+
+        x5 = self.avgpool(x4)
+
+        x6 = x5.view(x5.size(0), -1)
+        x7 = self.fc(x6)
+
+        if len(self.output_layers) == 0:
+            return x7
+        else:
+            out = []
+            out.append(x7)
+            for i in self.output_layers:
+                if i == 'avgpool':
+                    out.append(x6)
+                if i == 'layer4':
+                    out.append(x4)
+                if i == 'layer3':
+                    out.append(x3)
+
+        return out
+
+    def freeze_batch_norm(self):
+        for name,m in self.named_modules():
+            if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d): # PHIL: i Think we can write just  "if isinstance(m, nn._BatchNorm)
+                m.eval() # use mean/variance from the training
+                m.weight.requires_grad = False
+                m.bias.requires_grad = False
+
+# XXX: Monkey patch MARS's implementation with our modified implementation ResNeXt
+MARS.models.model.resnext.ResNeXt = ResNeXt
 
 def preprocessing_fn_torch(
     batch: Union[torch.Tensor, np.ndarray],
@@ -241,20 +388,31 @@ class OuterModel(torch.nn.Module):
         self.preprocessing_std = np.array(preprocessing_std, dtype=np.float32)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.max_frames:
-            x = x[:, : self.max_frames]
+        # XXX: PyTorchClassifier always puts x onto the specified device. So we tell it to leave x on the CPU and
+        #      manually convert it to the GPU. However, we need to make sure the model is on the GPU.
+        self.model.to('cuda')
 
-        if self.training:
-            # Use preprocessing_fn_numpy in dataset preprocessing
-            return self.model(x)
-        else:
-            x = preprocessing_fn_torch(x, self.preprocessing_consecutive_frames,
-                                          self.preprocessing_scale_first,
-                                          self.preprocessing_align_corners,
-                                          self.preprocessing_mean,
-                                          self.preprocessing_std)
-            stack_outputs = self.model(x)
-            output = stack_outputs.mean(axis=0, keepdims=True)
+        assert len(x.shape) == 5
+        assert x.shape[0] == 1
+
+        batched_outputs = []
+
+        for i in range(0, min(x.shape[1], self.max_frames), self.preprocessing_consecutive_frames):
+            # XXX: Manually move batch onto GPU
+            x_batch = x[:, i:i + self.preprocessing_consecutive_frames, :, :, :].to('cuda')
+
+            x_pre = preprocessing_fn_torch(x_batch, self.preprocessing_consecutive_frames,
+                                                    self.preprocessing_scale_first,
+                                                    self.preprocessing_align_corners,
+                                                    self.preprocessing_mean,
+                                                    self.preprocessing_std)
+
+            outputs = self.model(x_pre)
+
+            batched_outputs.append(outputs)
+
+        batched_outputs = torch.cat(batched_outputs)
+        output = batched_outputs.mean(axis=0, keepdims=True)
 
         return output
 
@@ -263,7 +421,7 @@ def get_art_model(
     model_kwargs: dict, wrapper_kwargs: dict, weights_path: Optional[str] = None
 ) -> PyTorchClassifier:
     model = OuterModel(weights_path=weights_path, **model_kwargs)
-    model.to(DEVICE)
+    model.to(DEVICE) # XXX: I think this is useless since PyTorchClassifier will put the model onto the specified device_type below
 
     wrapped_model = PyTorchClassifier(
         model,
@@ -272,6 +430,7 @@ def get_art_model(
         input_shape=(None, 240, 320, 3),
         nb_classes=101,
         clip_values=(0.0, 1.0),
+        device_type='cpu', # XXX: All inputs will live on CPU and we will move them to the GPU as necessary
         **wrapper_kwargs,
     )
     return wrapped_model

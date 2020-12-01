@@ -48,12 +48,19 @@ class MultichannelSemanticSegmentor(PreprocessorPyTorch):
         #  nb_channels = 80 (number of thing classes in coco 2017 dataset)
         #  default value (background) is 0
         nb_channels = len(self.detectron2.detectron2.metadata.thing_classes)
-        seg_maps = torch.zeros((nb_batch, nb_frames, height, width, nb_channels), dtype=torch.float32, device=self._device)
+        seg_maps = torch.zeros((nb_batch, nb_frames, height, width, nb_channels), dtype=torch.float32, device='cpu')
 
         for i, x_batch in enumerate(x):
-            predictions, _ = self.detectron2.forward(x_batch)
+            for j, x_frame in enumerate(x_batch):
+                # Add dummy batch dimension to x_frame
+                x_frame = x_frame.unsqueeze(0)
 
-            for j, instances in enumerate(predictions):
+                # Run single frame through detectron2
+                predictions, _ = self.detectron2.forward(x_frame)
+
+                assert len(predictions) == 1
+                instances = predictions[0]
+
                 if len(instances) == 0:
                     continue
 
@@ -69,7 +76,7 @@ class MultichannelSemanticSegmentor(PreprocessorPyTorch):
                     label_mask = instances.pred_masks[label_idx]
                     label_mask = label_mask.any(axis=0)
                     # TODO: It may be worth separating background and foreground in to -1 and 1 and letting 0 represent no detections (rather than background).
-                    seg_maps[i, j, :, :, label] = label_mask
+                    seg_maps[i, j, :, :, label] = label_mask.to(seg_maps.device)
 
         assert x.shape[:4] == seg_maps.shape[:4]
         assert seg_maps.shape[4] == nb_channels
