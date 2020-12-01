@@ -73,14 +73,18 @@ class Detectron2Preprocessor(PreprocessorPyTorch):
 
 
 class GaussianDetectron2Preprocessor(PreprocessorPyTorch):
+    """Add Gaussian noise to Detectron2 input. It behaves the same as Detectron2Preprocessor when sigma is 0.
+    """
     def __init__(self, sigma=0, clip_values=None, **kwargs):
         super().__init__()
         self.noise_generator = GaussianAugmentationPyTorch(sigma=sigma, augmentation=False, clip_values=clip_values)
         self.detectron2 = Detectron2Preprocessor(**kwargs)
+        logger.info(f"Add Gaussian noise sigma={sigma:.4f} clip_values={clip_values} to Detectron2's input.")
 
     def forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> List[List[dict]]:
         x, _ = self.noise_generator.forward(x, y)
         return self.detectron2.forward(x, y)
 
     def estimate_forward(self, x, **kwargs):
+        x = self.noise_generator.estimate_forward(x)
         return self.detectron2.estimate_forward(x, **kwargs)

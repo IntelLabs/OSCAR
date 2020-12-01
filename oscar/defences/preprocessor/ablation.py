@@ -12,7 +12,7 @@ import torch
 import numpy as np
 from typing import Optional, Tuple, List
 from oscar.defences.preprocessor.preprocessor_pytorch import PreprocessorPyTorch
-from oscar.defences.preprocessor.detectron2_preprocessor import Detectron2Preprocessor, GaussianDetectron2Preprocessor
+from oscar.defences.preprocessor.detectron2_preprocessor import GaussianDetectron2Preprocessor
 
 
 class BackgroundAblator(PreprocessorPyTorch):
@@ -29,15 +29,19 @@ class BackgroundAblator(PreprocessorPyTorch):
                  detectron2_score_thresh=0.5,
                  detectron2_iou_thresh=None,
                  detectron2_device_type='gpu',
-                 device_type='gpu') -> None:
+                 device_type='gpu',
+                 gaussian_sigma=0,
+                 gaussian_clip_values=None) -> None:
         super().__init__(device_type)
 
         if detectron2_config_path is not None and detectron2_weights_path is not None:
-            self.detectron2 = Detectron2Preprocessor(detectron2_config_path,
-                                                     detectron2_weights_path,
-                                                     score_thresh=detectron2_score_thresh,
-                                                     iou_thresh=detectron2_iou_thresh,
-                                                     device_type=detectron2_device_type)
+            self.detectron2 = GaussianDetectron2Preprocessor(sigma=gaussian_sigma,
+                                                             clip_values=gaussian_clip_values,
+                                                             config_path=detectron2_config_path,
+                                                             weights_path=detectron2_weights_path,
+                                                             score_thresh=detectron2_score_thresh,
+                                                             iou_thresh=detectron2_iou_thresh,
+                                                             device_type=detectron2_device_type)
 
         self.mask_color = torch.tensor(mask_color, dtype=torch.float32, device=self._device)
         self.invert_mask = invert_mask
@@ -116,40 +120,3 @@ class BackgroundAblator(PreprocessorPyTorch):
 
         # Only pass 3-channels
         return x[:, :, :, :, :3]
-
-
-class GaussianBackgroundAblator(PreprocessorPyTorch):
-    """
-    Add gaussian noise to detectron2 input but does not noise final outputs.
-    """
-    def __init__(self,
-                 mask_color,
-                 invert_mask=False,
-                 enforce_binary_masks=True,
-                 detectron2_config_path=None,
-                 detectron2_weights_path=None,
-                 detectron2_score_thresh=None,
-                 detectron2_iou_thresh=None,
-                 gaussian_sigma=0,
-                 gaussian_clip_values=None) -> None:
-        super().__init__()
-
-        # Avoid creating a non-Gaussian Detectron2 model.
-        self.ablator = BackgroundAblator(mask_color,
-                                         invert_mask=invert_mask,
-                                         enforce_binary_masks=enforce_binary_masks)
-
-        if detectron2_config_path is not None and detectron2_weights_path is not None:
-            self.detectron2 = GaussianDetectron2Preprocessor(sigma=gaussian_sigma,
-                                                             clip_values=gaussian_clip_values,
-                                                             config_path=detectron2_config_path,
-                                                             weights_path=detectron2_weights_path,
-                                                             score_thresh=detectron2_score_thresh,
-                                                             iou_thresh=detectron2_iou_thresh)
-            self.ablator.detectron2 = self.detectron2
-
-    def forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> Tuple["torch.Tensor", Optional["torch.Tensor"]]:
-        return self.ablator.forward(x, y)
-
-    def estimate_forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> "torch.Tensor":
-        return self.ablator.estimate_forward(x, y)

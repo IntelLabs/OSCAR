@@ -11,7 +11,7 @@ import torch
 import numpy as np
 from typing import Optional, Tuple, List
 from oscar.defences.preprocessor.preprocessor_pytorch import PreprocessorPyTorch
-from oscar.defences.preprocessor.detectron2_preprocessor import Detectron2Preprocessor
+from oscar.defences.preprocessor.detectron2_preprocessor import GaussianDetectron2Preprocessor
 
 
 class PalettedSemanticSegmentor(PreprocessorPyTorch):
@@ -27,19 +27,23 @@ class PalettedSemanticSegmentor(PreprocessorPyTorch):
                  detectron2_iou_thresh=None,
                  detectron2_device_type='gpu',
                  palette=None,
-                 device_type='gpu') -> None:
+                 device_type='gpu',
+                 gaussian_sigma=0,
+                 gaussian_clip_values=None) -> None:
         super().__init__(device_type)
 
-        self.detectron2 = Detectron2Preprocessor(detectron2_config_path,
-                                                 detectron2_weights_path,
-                                                 score_thresh=detectron2_score_thresh,
-                                                 iou_thresh=detectron2_iou_thresh,
-                                                 device_type=detectron2_device_type)
+        self.detectron2 = GaussianDetectron2Preprocessor(sigma=gaussian_sigma,
+                                                         clip_values=gaussian_clip_values,
+                                                         config_path=detectron2_config_path,
+                                                         weights_path=detectron2_weights_path,
+                                                         score_thresh=detectron2_score_thresh,
+                                                         iou_thresh=detectron2_iou_thresh,
+                                                         device_type=detectron2_device_type)
 
         # Get palette from detectron2 metadata
         self.palette = palette
         if self.palette is None:
-            self.palette = torch.tensor(self.detectron2.metadata.thing_colors, dtype=torch.int32, device=self._device) / 255
+            self.palette = torch.tensor(self.detectron2.detectron2.metadata.thing_colors, dtype=torch.int32, device=self._device) / 255
 
         self.mask_color = torch.tensor(mask_color, dtype=torch.float32, device=self._device)
 

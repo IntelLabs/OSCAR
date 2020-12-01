@@ -11,7 +11,7 @@ import torch
 import numpy as np
 from typing import Optional, Tuple, List
 from oscar.defences.preprocessor.preprocessor_pytorch import PreprocessorPyTorch
-from oscar.defences.preprocessor.detectron2_preprocessor import Detectron2Preprocessor
+from oscar.defences.preprocessor.detectron2_preprocessor import GaussianDetectron2Preprocessor
 
 
 class MultichannelSemanticSegmentor(PreprocessorPyTorch):
@@ -24,14 +24,18 @@ class MultichannelSemanticSegmentor(PreprocessorPyTorch):
                  detectron2_score_thresh=0.5,
                  detectron2_iou_thresh=None,
                  detectron2_device_type='gpu',
-                 device_type='gpu') -> None:
+                 device_type='gpu',
+                 gaussian_sigma=0,
+                 gaussian_clip_values=None) -> None:
         super().__init__(device_type)
 
-        self.detectron2 = Detectron2Preprocessor(detectron2_config_path,
-                                                 detectron2_weights_path,
-                                                 score_thresh=detectron2_score_thresh,
-                                                 iou_thresh=detectron2_iou_thresh,
-                                                 device_type=detectron2_device_type)
+        self.detectron2 = GaussianDetectron2Preprocessor(sigma=gaussian_sigma,
+                                                         clip_values=gaussian_clip_values,
+                                                         config_path=detectron2_config_path,
+                                                         weights_path=detectron2_weights_path,
+                                                         score_thresh=detectron2_score_thresh,
+                                                         iou_thresh=detectron2_iou_thresh,
+                                                         device_type=detectron2_device_type)
 
     def forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> Tuple["torch.Tensor", Optional["torch.Tensor"]]:
         assert len(x.shape) == 5
@@ -43,7 +47,7 @@ class MultichannelSemanticSegmentor(PreprocessorPyTorch):
         #  shape: (batch, frames, height, width, channels)
         #  nb_channels = 80 (number of thing classes in coco 2017 dataset)
         #  default value (background) is 0
-        nb_channels = len(self.detectron2.metadata.thing_classes)
+        nb_channels = len(self.detectron2.detectron2.metadata.thing_classes)
         seg_maps = torch.zeros((nb_batch, nb_frames, height, width, nb_channels), dtype=torch.float32, device=self._device)
 
         for i, x_batch in enumerate(x):
