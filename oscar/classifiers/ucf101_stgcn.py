@@ -6,13 +6,15 @@
 
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Tuple, Union
 
 from art.classifiers import PyTorchClassifier
 import torch
 import torch.nn as nn
 
 from mmskeleton.models.backbones.st_gcn_aaai18 import ST_GCN_18
+
+from oscar.utils.transforms.keypoints import BatchStandardizeSTGCNInputTimesteps
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,8 @@ class CustomSTGCN(ST_GCN_18):
             edge_importance_weighting=edge_importance_weighting,
             graph_cfg={"layout": graph_layout, "strategy": graph_strategy},
         )
+
+        self.input_transform = BatchStandardizeSTGCNInputTimesteps()
 
     def load_weights(self, weights_path: Union[Path, str], drop_fcn: bool = False):
         weights_path = Path(weights_path).resolve()
@@ -57,6 +61,14 @@ class CustomSTGCN(ST_GCN_18):
 
         self.load_state_dict(state_dict, strict=strict_mode)
         logger.info(f"Loaded STGCN weights from `{weights_path}`")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.input_transform(x)
+        return super().forward(x)
+
+    def extract_feature(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = self.input_transform(x)
+        return super().extract_feature(x)
 
 
 def get_art_model(

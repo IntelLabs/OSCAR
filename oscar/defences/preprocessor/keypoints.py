@@ -9,6 +9,7 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 from detectron2.layers import cat, interpolate
 from detectron2.modeling.meta_arch import GeneralizedRCNN
 from detectron2.structures import Instances
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -61,7 +62,7 @@ def _make_output_transform(
         assert keypoint_output_format == "coco"
 
     if convert_to_stgcn_input:
-        transforms.append(KeypointsToSTGCNInput(num_frames_enforced=300))
+        transforms.append(KeypointsToSTGCNInput(num_frames_enforced=None))
 
     return nn.Sequential(*transforms)
 
@@ -182,14 +183,11 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
         config_path: str,
         weights_path: str,
         score_thresh: float = 0.7,
-        input_width: int = 320,
-        input_height: int = 240,
         input_format: str = "RGB",
         channels_first: bool = False,
         clip_values: Tuple[float, float] = (0.0, 1.0),
         batch_frames_per_video: Optional[int] = 100,
         limit_frames_processed: Optional[int] = 300,
-        limit_frames_estimated: Optional[int] = 50,
         keypoint_output_format: str = "openpose",
         convert_to_stgcn_input: bool = True,
         device_type: str = "gpu",
@@ -207,7 +205,6 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
         self.batch_frames_per_video = batch_frames_per_video
         self.limit_frames_processed = limit_frames_processed
-        self.limit_frames_estimated = limit_frames_estimated
         self.max_instances = 1
 
         self.input_video_transform = _make_input_transform(
@@ -221,19 +218,13 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
         self.argmax_layer = TwoDeeArgmax(temperature=100).to(self._device)
 
     def _iter_preprocessed_inputs(
-        self, x: torch.Tensor, estimate=False
+        self, x: torch.Tensor
     ) -> Generator[List[dict], None, None]:
 
         for n in range(x.size(0)):
             video = x[n]
 
-            if estimate and self.limit_frames_estimated is not None:
-                # typically limit_frames_estimated < limit_frames_processed
-                # since DT2 model could go out of memory
-                # for large number of frames in backward pass
-                video = video[: self.limit_frames_estimated]
-
-            elif not estimate and self.limit_frames_processed is not None:
+            if self.limit_frames_processed is not None:
                 video = video[: self.limit_frames_processed]
 
             video = self.input_video_transform(video)
@@ -282,7 +273,7 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
         self.argmax_layer.train()
 
         output = list()
-        for video_inputs in self._iter_preprocessed_inputs(x, estimate=True):
+        for video_inputs in self._iter_preprocessed_inputs(x):
             video_heatmaps = _estimate_heatmaps(
                 dt2_model=self.model,
                 batched_inputs=video_inputs,
@@ -328,3 +319,40 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
             output.append(video_keypoints)
 
         return torch.stack(output)
+
+    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray) -> np.ndarray:
+        N, T = x.shape[:2]
+
+        output = list()
+        for n in range(N):
+            video_grads_out = list()
+            for t in range(T):
+                if (
+                    self.limit_frames_processed is None
+                    or t < self.limit_frames_processed
+                ):
+                    self.model.zero_grad()
+                    self.argmax_layer.zero_grad()
+
+                    frame_tensor = torch.tensor(
+                        x[n : n + 1, t : t + 1].copy(),
+                        device=self._device,
+                        requires_grad=True,
+                    )
+                    frame_grads_in_tensor = torch.tensor(
+                        grad[n : n + 1, :, t : t + 1], device=self._device
+                    )
+
+                    frame_keypoints_tensor = self.estimate_forward(frame_tensor)
+                    frame_keypoints_tensor.backward(frame_grads_in_tensor)
+                    frame_grads_out = frame_tensor.grad.detach().cpu().numpy()
+
+                    assert frame_grads_out.shape[:2] == (1, 1)
+                    video_grads_out.append(frame_grads_out[0, 0])
+
+                else:
+                    video_grads_out.append(np.zeros_like(x[n, t]))
+
+            output.append(np.stack(video_grads_out, axis=0))
+
+        return np.stack(output, axis=0)
