@@ -43,7 +43,7 @@ class PalettedSemanticSegmentor(PreprocessorPyTorch):
         # Get palette from detectron2 metadata
         self.palette = palette
         if self.palette is None:
-            self.palette = torch.tensor(self.detectron2.detectron2.metadata.thing_colors, dtype=torch.int32, device=self._device) / 255
+            self.palette = torch.tensor(self.detectron2.detectron2.metadata.thing_colors, dtype=torch.float32, device=self._device) / 255
 
         self.mask_color = torch.tensor(mask_color, dtype=torch.float32, device=self._device)
 
