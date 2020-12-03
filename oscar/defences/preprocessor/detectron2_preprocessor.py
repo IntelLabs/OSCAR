@@ -4,6 +4,7 @@
 # Licensed subject to the terms of the separately executed evaluation license
 # agreement between Intel Corporation and you.
 #
+import pkg_resources
 import logging
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ from detectron2.model_zoo import get_config_file
 from detectron2.config import get_cfg
 import detectron2.data.transforms as T
 from oscar.utils.utils import create_model, create_inputs
-
+from armory.data.utils import maybe_download_weights_from_s3
 
 class Detectron2Preprocessor(PreprocessorPyTorch):
     """
@@ -27,10 +28,26 @@ class Detectron2Preprocessor(PreprocessorPyTorch):
     def __init__(self, config_path, weights_path, score_thresh=0.5, iou_thresh=None, device_type='gpu') -> None:
         super().__init__(device_type=device_type)
 
-        config_path = get_config_file(config_path)
+        # Find paths to configuration and weights for Detectron2.
+        if config_path.startswith('detectron2://'):
+            config_path = config_path[len('detectron2://'):]
+            config_path = get_config_file(config_path)
+
+        if config_path.startswith('oscar://'):
+            config_path = config_path[len('oscar://'):]
+            config_path = pkg_resources.resource_filename('oscar.model_zoo', config_path)
+
+        if weights_path.startswith('oscar://'):
+            weights_path = weights_path[len('oscar://'):]
+            weights_path = pkg_resources.resource_filename('oscar.model_zoo', weights_path)
+
+        if weights_path.startswith('armory://'):
+            weights_path = weights_path[len('armory://'):]
+            weights_path = maybe_download_weights_from_s3(weights_path)
 
         # Create Detectron2 Model
         self.model, self.metadata = create_model(config_path, weights_path, device=self._device, score_thresh=score_thresh, iou_thresh=iou_thresh)
+        logger.info(f"Detectron2 config: score_thresh={score_thresh}, iou_thresh={iou_thresh}.")
 
         # Get augmentation for resizing
         cfg = get_cfg()
