@@ -41,7 +41,18 @@ class CustomSTGCN(ST_GCN_18):
     def load_weights(self, weights_path: Union[Path, str], drop_fcn: bool = False):
         weights_path = Path(weights_path).resolve()
 
-        state_dict = torch.load(weights_path)
+        state_dict = None
+        try:
+            state_dict = torch.load(weights_path)
+        except RuntimeError:
+            logger.info(
+                "Couldn't load state dict to CPU, attempting to load onto GPU..."
+            )
+        if state_dict is None:
+            state_dict = torch.load(
+                weights_path, map_location=f"cuda:{torch.cuda.current_device()}"
+            )
+        assert state_dict is not None
 
         # if weights are a PyTorch Lightning checkpoint
         if "state_dict" in state_dict:
