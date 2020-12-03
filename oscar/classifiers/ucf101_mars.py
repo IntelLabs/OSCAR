@@ -388,8 +388,9 @@ class OuterModel(torch.nn.Module):
         self.preprocessing_std = np.array(preprocessing_std, dtype=np.float32)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # XXX: PyTorchClassifier always puts x onto the specified device. So we tell it to leave x on the CPU and
-        #      manually convert it to the GPU. However, we need to make sure the model is on the GPU.
+        # XXX: PyTorchClassifier always puts x onto the specified device. So we tell it to leave x on the CPU (because it is too big)
+        #      and manually move it to the GPU since we want to run the model on the GPU. Note that we tell PyTorchClassifier to leave
+        #      inputs on the CPU in get_art_model below, which means there is a tight coupling between OuterModel and get_art_model here.
         self.model.to('cuda')
 
         assert len(x.shape) == 5
@@ -413,6 +414,7 @@ class OuterModel(torch.nn.Module):
 
         batched_outputs = torch.cat(batched_outputs)
         output = batched_outputs.mean(axis=0, keepdims=True)
+        output = output.to('cpu') # Put back onto the CPU because that's where Armory/ART needs it
 
         return output
 
