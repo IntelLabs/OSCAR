@@ -1,0 +1,35 @@
+MODEL:
+  META_ARCHITECTURE: "GeneralizedRCNN"
+  WEIGHTS: "oscar:///home/ccorneli/Projects/big_transfer/logs/bit_resisc45/resisc45_2020-05-28_124512/bit.pkl"
+  PIXEL_MEAN: [127.5, 127.5, 127.5]
+  PIXEL_STD: [1., 1., 1.]
+  BACKBONE:
+    NAME: "ResNetV2"
+    FREEZE_AT: 0
+  ROI_HEADS:
+    NAME: "Res5V2ROIHeads"
+    NUM_CLASSES: 45
+    BATCH_SIZE_PER_IMAGE: 16
+  RPN:
+    BATCH_SIZE_PER_IMAGE: 8
+    PRE_NMS_TOPK_TEST: 6000
+    POST_NMS_TOPK_TEST: 1000
+  MASK_ON: False
+  RESNETS:
+    DEPTH: 50
+DATASETS:
+  TRAIN: ("resisc45_train",)
+  TEST: ("resisc45_val",)
+SOLVER:
+  IMS_PER_BATCH: 16
+  BASE_LR: 0.0001
+  STEPS: (20000, 40000, 60000, 80000)
+  MAX_ITER: 100000
+  CHECKPOINT_PERIOD: 500
+INPUT:
+  MAX_SIZE_TEST: 800
+  MAX_SIZE_TRAIN: 800
+  MIN_SIZE_TEST: 800
+  MIN_SIZE_TRAIN: (800,)
+VERSION: 2
+OUTPUT_DIR: "./output_resnetv2"
