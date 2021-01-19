@@ -102,7 +102,7 @@ test: .venv
 #
 .PHONY: docker_image
 docker_image: docker/Dockerfile ## Creates OSCAR docker image for use in armory
-> $(DOCKER) build --file docker/Dockerfile -t $(DOCKER_IMAGE_TAG) .
+> cd docker && $(DOCKER) build --file Dockerfile -t $(DOCKER_IMAGE_TAG) .
 
 #
 # Submission Targets
