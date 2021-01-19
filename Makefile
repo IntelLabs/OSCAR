@@ -107,7 +107,10 @@ docker_image: docker/Dockerfile ## Creates OSCAR docker image for use in armory
 #
 # Submission Targets
 #
-submission/INTL_Dockerfile: docker/Dockerfile
+submission/:
+> mkdir -p $@
+
+submission/INTL_Dockerfile: docker/Dockerfile submission/
 > cp $< $@
 
 .PHONY: submission
@@ -126,7 +129,10 @@ clean_submission:
 lib/armory/scenario_configs/%.json: lib/armory/.git
 > touch $@
 
-scenario_configs/%.json: lib/armory/scenario_configs/%.json
+scenario_configs/:
+> mkdir -p $@
+
+scenario_configs/%.json: lib/armory/scenario_configs/%.json scenario_configs/
 > cat $< | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG)"' > $@
 
 results/%.json.armory_run: results/%.json | .venv
@@ -140,6 +146,9 @@ results/%.json.armory_docker_run: results/%.json | .venv
 
 results/%.json.armory_docker_check: results/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
+
+scenario_configs/oscar/:
+> mkdir -p $@
 
 # Witness the magic of .SECONDEXPANSION! $$(*D) is the directory of the matched target exclude prefixes,
 # and $$(@F) is the filename of the matched target. We used the | (order-only) to separate
@@ -156,3 +165,4 @@ results/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | scenario_configs/oscar/$$(@F)
 $(MODEL_ZOO)/%.pth:
 > $(error No model exists in "$(@D)". You either need to train the model or ask someone for it.)
 
+include *.mk
