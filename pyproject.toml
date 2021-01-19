@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "oscar"
+version = "0.1.0"
+description = ""
+authors = ["Cory Cornelius <cory.cornelius@intel.com>"]
+license = "BSD-3-Clause"
+include = ["oscar/model_zoo/**/*.config", "oscar/model_zoo/**/*.pth"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+numpy = "1.19.2"
+torch = "1.7.0"
+setGPU = "^0.0.7"
+opencv-python = "^4.2.0"
+kornia = "^0.4.0"
+torchvision = "0.8.1"
+Cython = "^0.29.16"
+pycocotools = "^2.0.0"
+wheel = "^0.34.2"
+gdown = "^3.11.0"
+mmskeleton = {path = "lib/mmskeleton"}
+seaborn = "^0.10.1"
+detectron2 = {url = "https://dl.fbaipublicfiles.com/detectron2/wheels/cu102/torch1.6/detectron2-0.2.1%2Bcu102-cp37-cp37m-linux_x86_64.whl"}
+tensorflow-datasets = "3.2.0"
+adversarial-robustness-toolbox = "1.4.2"
+tensorflow = "2.2.0"
+armory-testbed = {path = "lib/armory"}
+boto3 = "1.11.13"
+apache-beam = "2.22.0"
+pytorch_lightning = "1.0.6"
+
+[tool.poetry.dev-dependencies]
+pytest = "5.3.5"
+jupyterlab = "1.2.6"
+bandit = "^1.6.2"
+yapf = "^0.30.0"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
