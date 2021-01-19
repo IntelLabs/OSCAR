@@ -1,3 +1,6 @@
 .venv
 lib/mmskeleton/build/
 oscar.egg-info/
+submission/
+scenario_configs/
+oscar/model_zoo/
