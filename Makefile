@@ -116,7 +116,7 @@ submission/INTL_Dockerfile: docker/Dockerfile submission/
 .PHONY: submission
 submission: submission/INTL_Dockerfile \
             ucf101_submission
-> $(info All submission files should be in the $@/ folder now.)
+> $(info $(GREEN)All submission files should be in the $@/ folder now.$(RESET))
 
 .PHONY: clean_submission
 clean_submission:
