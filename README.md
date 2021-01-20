@@ -1,6 +1,5 @@
 # Object Sensing and Cognition for Adversarial Robustness
 
--------------------
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 ## Overview
@@ -21,9 +20,9 @@ these system-level dependencies for Ubuntu 18.04:
 make ubuntu_deps
 ```
 
-To run our submission, you will need to use (https://github.com/twosixlabs/armory)[ARMORY].
+To run our submission, you will need to use [ARMORY](https://github.com/twosixlabs/armory).
 We do provide some infrastructure to run our submission using our `Makefile`. Because
-ARMORY relies upon Python, we manage our Python dependencies are managed using (https://python-poetry.org)[Poetry].
+ARMORY relies upon Python, we manage our Python dependencies are managed using [Poetry](https://python-poetry.org).
 The following command will install Poetry and use it to create a virtual environment and
 install all necessary dependencies:
 ```
