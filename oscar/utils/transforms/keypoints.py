@@ -109,6 +109,23 @@ class KeypointsToSTGCNInput(nn.Module):
         return keypoints.permute(3, 0, 2, 1)  # (3, T', 18, M)
 
 
+class StandardizeSTGCNInputTimesteps(nn.Module):
+    def forward(self, keypoints: torch.Tensor) -> torch.Tensor:
+        V, T, K, M = keypoints.size()
+        assert V == 3
+        assert K == 18
+        assert M <= 2
+
+        num_target_timesteps = 300
+
+        repeat = math.ceil(float(num_target_timesteps) / T)
+        if repeat >= 2:
+            keypoints = keypoints.repeat(1, repeat, 1, 1)
+        keypoints = keypoints[:, :num_target_timesteps]
+
+        return keypoints
+
+
 class BatchStandardizeSTGCNInputTimesteps(nn.Module):
     def forward(self, keypoints: torch.Tensor) -> torch.Tensor:
         N, V, T, K, M = keypoints.size()

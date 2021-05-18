@@ -1,8 +1,7 @@
 #
 # Copyright (C) 2020 Intel Corporation
 #
-# Licensed subject to the terms of the separately executed evaluation license
-# agreement between Intel Corporation and you.
+# SPDX-License-Identifier: BSD-3-Clause
 #
 
 import cv2
@@ -23,6 +22,8 @@ from detectron2.structures.boxes import Boxes
 
 import pytorch_lightning as pl
 
+from itertools import product
+from collections.abc import Iterable
 
 def read_image(path):
     """
@@ -399,41 +400,153 @@ def plot_images(images, bboxes=None, model=None, metadata=None, col_wrap=5, scal
 
     plt.show()
 
+def batch_yield(x, dim=0, size=0):
+    """
+    Yields batches of x over the given dimension(s) and size(s).
 
-# FIXME: The result is consistent when running on one GPU.
-#       But the result on multiple GPUs are not consistent yet.
-class AccuracyTopk(pl.metrics.Accuracy):
+    Args:
+        x (numpy.ndarray): Array to yield batches from.
+        dim (int, Iterable[int]): Dimension of x to yield batches of.
+        size (int, Iterable[int]): Length of batches to yield.
 
-    def __init__(
-        self,
-        k: int = 1,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.k = k
+    Returns:
+        Yields a tuple containing a batch of x and an index of x
 
-    def _input_format(self, preds: torch.Tensor, target: torch.Tensor):
-        if not (len(preds.shape) == len(target.shape) or len(preds.shape) == len(target.shape) + 1):
-            raise ValueError(
-                "preds and target must have same number of dimensions, or one additional dimension for preds")
+    Notes:
+        If size is 0, this function yields individual samples of x.
 
-        if len(preds.shape) == len(target.shape) + 1:
-            # multi class probabilites
-            preds = preds.topk(self.k, dim=1)[1][0]
+    Examples:
+        >>> list(batch_yield(np.array([1, 2, 3, 4]))) #doctest: +NORMALIZE_WHITESPACE
+        [(1, (0,)),
+         (2, (1,)),
+         (3, (2,)),
+         (4, (3,))]
+        >>> list(batch_yield(np.array([1, 2, 3, 4]), size=1)) #doctest: +NORMALIZE_WHITESPACE
+        [(array([1]), (slice(0, 1, None),)),
+         (array([2]), (slice(1, 2, None),)),
+         (array([3]), (slice(2, 3, None),)),
+         (array([4]), (slice(3, 4, None),))]
+        >>> list(batch_yield(np.array([1, 2, 3, 4]), size=2)) #doctest: +NORMALIZE_WHITESPACE
+        [(array([1, 2]), (slice(0, 2, None),)),
+         (array([3, 4]), (slice(2, 4, None),))]
+    """
+    if not isinstance(dim, Iterable):
+        dim = [dim]
+    if not isinstance(size, Iterable):
+        size = [size]
 
-        if len(preds.shape) == len(target.shape) and preds.dtype == torch.float:
-            # binary or multilabel probablities
-            preds = (preds >= self.threshold).long()
-        return preds, target
+    assert len(dim) == len(size)
 
-    def update(self, preds: torch.Tensor, target: torch.Tensor):
-        """
-        Update state with predictions and targets.
-        Args:
-            preds: Predictions from model
-            target: Ground truth values
-        """
-        preds, target = self._input_format(preds, target)
+    # Construct indices of x
+    indices = []
+    for d, ds in enumerate(x.shape):
+        # If this is a dimension we want to batch over...
+        if d in dim:
+            s = size[dim.index(d)]
 
-        self.correct += torch.tensor(target in preds).type_as(target)
-        self.total += target.numel()
+            if s > 0:
+                index = [slice(i, i+s) for i in range(0, ds, s)]
+            else:
+                index = range(0, ds, 1)
+        else:
+            index = [slice(None)]
+        indices.append(index)
+
+    # Pull out each batch using contructed indices and yield
+    for index in product(*indices):
+        x_batch = x[index]
+        yield x_batch, index
+
+def bmap(map_fn, *args, batch_dim=0, batch_size=1):
+    """
+    Maps args using map_fn over the given batch dimension(s) and batch size(s).
+
+    Args:
+        map_fn (func): A function taking exactly the number of args to map.
+        *args (numpy.ndarray, ...): An array to map
+        batch_dim (int, Iterable[int]): The dimension of args to batch over
+        batch_size (int, Iterable[int]): The size of each batch
+
+    Returns:
+        args mapped by map_fn.
+
+    Notes:
+        This version of map works differently than Python's `map` function because
+        it is batching and variadic. This allows one to focus on the concerns of the
+        `map_fn` without having to account for batching itself. The variadicity enables
+        one to supply different inputs to the `map_fn` over the specified batch dimension.
+
+        If `map_fn` does not return an equal number of numpy.ndarrays as args, the
+        mapped output will be truncated. If None is returned by map_fn, the output
+        will be mapped to None.
+    """
+    if not isinstance(args, tuple):
+        args = (args,)
+    if not isinstance(batch_dim, Iterable):
+        batch_dim = (batch_dim,)
+    if not isinstance(batch_size, Iterable):
+        batch_size = (batch_size,)
+
+    # Ensure 0 <= batch_dim < len(args.shape)
+    for dim in batch_dim:
+        for i, arg in enumerate(args):
+            if not (0 <= dim < len(arg.shape)):
+                raise ValueError(f"batch_dim {dim} exceeds dimensions of arg[{i}] (dims={len(arg.shape)})")
+
+    # Ensure 0 < batch_size
+    for size in batch_size:
+        if not (0 < size):
+            raise ValueError(f"batch_size must be greater than 0: {batch_size}")
+
+    # Wait to create this dynamically by using first output to get proper shape
+    args_mapped = None
+
+    # Yield on each batch for each arg
+    batch_yields = [batch_yield(x, dim=batch_dim, size=batch_size) for x in args]
+
+    for list_of_args_batch_index in zip(*batch_yields):
+        # [(batch0, index0), ..., (batchN, indexN)] ->
+        #  [(batch0, ..., batchN), (index0, ..., indexN)]
+        args_batch, args_index = zip(*list_of_args_batch_index)
+
+        # Call map function
+        args_batch_mapped = map_fn(*args_batch)
+
+        # Convert to tuple in case fn returns single item
+        if not isinstance(args_batch_mapped, tuple):
+            args_batch_mapped = (args_batch_mapped,)
+
+        # Construct output array using existing batch dimension sizes but new transformed sizes
+        if args_mapped is None:
+            args_mapped = []
+            for arg, arg_mapped in zip(args, args_batch_mapped):
+                if arg_mapped is not None:
+                    # Combine batch dimension sizes with...
+                    shape = list(arg_mapped.shape)
+                    # non-batch dimension sizes to get total output size
+                    for d in batch_dim:
+                        shape[d] = arg.shape[d]
+
+                    # Copy and resize first sample to total output size
+                    arg_mapped = np.resize(arg_mapped, shape)
+
+                args_mapped.append(arg_mapped)
+
+        # Save mapped values
+        for arg_mapped, arg_index, arg_batch_mapped in zip(args_mapped, args_index, args_batch_mapped):
+            if arg_mapped is None:
+                continue
+            arg_mapped[arg_index] = arg_batch_mapped
+
+    # Make sure we maintain dimension sizes we batched over
+    for arg, arg_mapped in zip(args, args_mapped):
+        if arg_mapped is None:
+            continue
+
+        assert np.all(np.array(arg.shape)[list(batch_dim)] ==
+                      np.array(arg_mapped.shape)[list(batch_dim)])
+
+    # If only single output returned from map_fn, then return only that
+    if len(args_mapped) == 1:
+        args_mapped = args_mapped[0]
+    return args_mapped

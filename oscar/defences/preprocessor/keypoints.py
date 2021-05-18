@@ -13,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from oscar.defences.preprocessor.detectron2_preprocessor import Detectron2Preprocessor
+from oscar.defences.preprocessor.detectron2 import Detectron2Preprocessor
 from oscar.utils.layers import TwoDeeArgmax
 from oscar.utils.transforms.keypoints import (
     CocoToOpenposeKeypoints,

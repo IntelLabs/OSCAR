@@ -1,5 +1,6 @@
 #
 # Copyright (C) 2020 Georgia Institute of Technology. All rights reserved.
+# Copyright (C) 2021 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -66,3 +67,16 @@ class TwoDeeArgmax(nn.Module):
             x_argmax = col_indices_flat[i]
 
         return x_argmax.clamp(0, W - 1), y_argmax.clamp(0, H - 1)
+
+
+class Quantize(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs, scale):
+        if len(inputs) == 0:
+            return inputs
+
+        return (scale * inputs).round().clip(0, scale) / scale
+
+    @staticmethod
+    def backward(ctx, grad_outputs):
+        return grad_outputs, None

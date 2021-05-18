@@ -9,8 +9,11 @@ POETRY = $(HOME)/.poetry/bin/poetry
 ARMORY = $(shell which armory)
 DOCKER_IMAGE_TAG = intellabs/oscar:0.12.3
 JQ = jq --indent 4 -r
-GIT_SUBMODULES = lib/armory/.git lib/mmskeleton/mmskeleton/.git
+GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git lib/mmskeleton/mmskeleton/.git
 MAKEFILE_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+ARMORY_SCENARIOS = scenario_configs
+SCENARIOS = $(ARMORY_SCENARIOS)/oscar
+RESULTS = results
 
 BLACK := $(shell tput -Txterm setaf 0)
 RED := $(shell tput -Txterm setaf 1)
@@ -32,8 +35,8 @@ ifneq ($(ARMORY_SAVED_MODEL_DIR), $(MAKEFILE_DIR)$(MODEL_ZOO))
     $(warning $(YELLOW)WARNING: Please configure armory to use $(WHITE)saved_model_dir$(YELLOW) as $(WHITE)$(MAKEFILE_DIR)$(MODEL_ZOO)$(YELLOW); current value is $(ARMORY_SAVED_MODEL_DIR)$(RESET).)
 endif
 
-ifneq ($(ARMORY_OUTPUT_DIR), $(MAKEFILE_DIR)results)
-    $(warning $(YELLOW)WARNING: Please configure armory to use $(WHITE)output_dir$(YELLOW) as $(WHITE)$(MAKEFILE_DIR)results$(YELLOW); current value is $(ARMORY_OUTPUT_DIR)$(RESET).)
+ifneq ($(ARMORY_OUTPUT_DIR), $(MAKEFILE_DIR)$(RESULTS))
+    $(warning $(YELLOW)WARNING: Please configure armory to use $(WHITE)output_dir$(YELLOW) as $(WHITE)$(MAKEFILE_DIR)$(RESULTS)$(YELLOW); current value is $(ARMORY_OUTPUT_DIR)$(RESET).)
 endif
 
 # Taken from https://tech.davis-hansson.com/p/make/
@@ -51,15 +54,15 @@ help:  ## Display this help
 # General Targets
 #
 .PHONY: clean
-clean: clean_scenarios
+clean: clean_scenarios clean_precomputed
 > rm -f oscar/model_zoo/MiDaS/model.pt
 > git submodule deinit -f .
 > rm -rf .venv
 
 .PHONY: clean_scenarios
 clean_scenarios:
-> rm -f scenario_configs/**/*.json
-> rm -f scenario_configs/*.json
+> rm -f $(ARMORY_SCENARIOS)/**/*.json
+> rm -f $(ARMORY_SCENARIOS)/*.json
 
 .PHONY: ubuntu_deps
 ubuntu_deps: ## Install Ubuntu dependencies
@@ -87,7 +90,7 @@ lib/%/.git:
 > $(POETRY) install
 > touch $@
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
-> @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)results$(RESET)"
+> @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
 > @echo "    saved_model_dir: $(GREEN)$(MAKEFILE_DIR)$(MODEL_ZOO)$(RESET)"
 
 .PHONY: python_deps
@@ -129,25 +132,26 @@ clean_submission:
 lib/armory/scenario_configs/%.json: lib/armory/.git
 > touch $@
 
-scenario_configs/:
+$(ARMORY_SCENARIOS)/:
 > mkdir -p $@
 
-scenario_configs/%.json: lib/armory/scenario_configs/%.json scenario_configs/
+$(ARMORY_SCENARIOS)/%.json: lib/armory/scenario_configs/%.json $(ARMORY_SCENARIOS)/
+> @test -s $< || { echo "$(RED)Armory scenario $*.json does not exist!$(RESET)"; exit 1; }
 > cat $< | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG)"' > $@
 
-results/%.json.armory_run: results/%.json | .venv
+$(RESULTS)/%.json.armory_run: $(RESULTS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_run\"" $< | $(POETRY) run armory run --no-docker - $(ARGS)
 
-results/%.json.armory_check: results/%.json | .venv
+$(RESULTS)/%.json.armory_check: $(RESULTS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_check\"" $< | $(POETRY) run armory run --no-docker --check - $(ARGS)
 
-results/%.json.armory_docker_run: results/%.json | .venv
+$(RESULTS)/%.json.armory_docker_run: $(RESULTS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_run\"" $< | $(POETRY) run armory run - $(ARGS)
 
-results/%.json.armory_docker_check: results/%.json | .venv
+$(RESULTS)/%.json.armory_docker_check: $(RESULTS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
 
-scenario_configs/oscar/:
+$(SCENARIOS)/:
 > mkdir -p $@
 
 # Witness the magic of .SECONDEXPANSION! $$(*D) is the directory of the matched target exclude prefixes,
@@ -155,7 +159,7 @@ scenario_configs/oscar/:
 # the base scenario JSON file and model weights .pth file so we can reference them using $| and $<,
 # respectively. See Automatic Variables in Makefile documentation.
 .SECONDEXPANSION:
-results/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | scenario_configs/oscar/$$(@F)
+$(RESULTS)/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | $(SCENARIOS)/$$(@F)
 > $(if $(word 1, $(shell if [ -f $< ]; then echo $<; else echo; fi)),,$(error There are no pth files in $(MODEL_ZOO)/$(*D)/))
 > $(if $(word 2, $^),$(error There are $(words $^) pth files in $(MODEL_ZOO)/$(*D)/. There should only be one to use: $^),)
 > mkdir -p $(@D)
@@ -164,5 +168,37 @@ results/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | scenario_configs/oscar/$$(@F)
 
 $(MODEL_ZOO)/%.pth:
 > $(error No model exists in "$(@D)". You either need to train the model or ask someone for it.)
+
+#
+# Precompute preprocessed data for training
+#
+PRECOMPUTED_DATA_DIR = $(ARMORY_DATASET_DIR)/precomputed
+
+$(PRECOMPUTED_DATA_DIR):
+> mkdir -p $@
+
+$(PRECOMPUTED_DATA_DIR)/preprocessed.%.train.scenario.json: $(SCENARIOS)/%.json | $(PRECOMPUTED_DATA_DIR)
+> cat $< | $(JQ) '.dataset.train_split = "train"' \
+         | $(JQ) '.dataset.framework = "numpy"' \
+         | $(JQ) 'del(.dataset.eval_split)' > $@
+
+$(PRECOMPUTED_DATA_DIR)/preprocessed.%.test.scenario.json: $(SCENARIOS)/%.json | $(PRECOMPUTED_DATA_DIR)
+> cat $< | $(JQ) '.dataset.eval_split = "test"' \
+         | $(JQ) '.dataset.framework = "numpy"' \
+         | $(JQ) 'del(.dataset.train_split)' > $@
+
+.DELETE_ON_ERROR: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5
+$(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.scenario.json
+> $(POETRY) run python -m oscar.data.preprocess_armory_data $< $@
+
+.PHONY: preprocessed.phony
+preprocessed.%.train preprocessed.%.test: preprocessed.phony # phony by proxy
+> $(MAKE) $(PRECOMPUTED_DATA_DIR)/$@.h5
+> @echo "Preprocessed data located at $(PRECOMPUTED_DATA_DIR)/$@.h5"
+
+.PHONY: clean_precomputed
+clean_precomputed:
+> rm -rf $(PRECOMPUTED_DATA_DIR)
+
 
 include *.mk

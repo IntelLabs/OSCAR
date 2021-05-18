@@ -6,7 +6,7 @@ Intel modified to add model_kwargs to opts
 import logging
 from typing import Union, Optional, Tuple, Any
 
-from art.classifiers import PyTorchClassifier
+from art.estimators.classification.pytorch import PyTorchClassifier
 import numpy as np
 import torch
 from torch import optim
@@ -430,6 +430,7 @@ def get_art_model(
         loss=torch.nn.CrossEntropyLoss(),
         optimizer=model.optimizer,
         input_shape=(None, 240, 320, 3),
+        channels_first=False,
         nb_classes=101,
         clip_values=(0.0, 1.0),
         device_type='cpu', # XXX: All inputs will live on CPU and we will move them to the GPU as necessary

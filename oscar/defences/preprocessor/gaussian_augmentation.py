@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
+import torch
 import numpy as np
 from typing import Optional, Tuple, TYPE_CHECKING
 from oscar.defences.preprocessor.preprocessor_pytorch import PreprocessorPyTorch
@@ -13,9 +14,24 @@ if TYPE_CHECKING:
     import torch
     from art.utils import CLIP_VALUES_TYPE
 
+
+class GaussianAugmentation(PreprocessorPyTorch):
+    def __init__(
+        self,
+        *args,
+        device_type = 'gpu',
+        batch_dim = (0, 1),
+        batch_size = (1, 1),
+        **kwargs,
+    ):
+        torch_module = GaussianAugmentationPyTorch(*args, **kwargs)
+
+        super().__init__(torch_module, device_type=device_type, batch_dim=batch_dim, batch_size=batch_size)
+
+
 # Some code is copied from art.defences.preprocessor.gaussian_augmentation.GaussianAugmentation
 # I rewrote it in PyTorch to make it chainable.
-class GaussianAugmentationPyTorch(PreprocessorPyTorch):
+class GaussianAugmentationPyTorch(torch.nn.Module):
     def __init__(
         self,
         sigma: float = 1.0,
@@ -45,10 +61,10 @@ class GaussianAugmentationPyTorch(PreprocessorPyTorch):
         self.clip_values = clip_values
         self._check_params()
 
-    def forward(self, x, y):
+    def forward(self, x):
         import torch  # lgtm [py/repeated-import]
         if self.augmentation:
-            raise NotImplementedError("Augmentation for training is not supported.")
+            raise NotImplementedError("Gaussian Augmentation for training is not supported.")
 
         if self.sigma > 0:
             noise = torch.zeros_like(x)
@@ -58,10 +74,11 @@ class GaussianAugmentationPyTorch(PreprocessorPyTorch):
             if self.clip_values is not None:
                 x = torch.clamp(x, self.clip_values[0], self.clip_values[1])
 
-        return x, y
+        return x
 
     def estimate_forward(self, x):
-        return x
+        # We have a differentiable forward().
+        return self.forward(x)
 
     def _check_params(self) -> None:
         if self.augmentation and self.ratio <= 0:

@@ -10,78 +10,105 @@ logger = logging.getLogger(__name__)
 import torch
 import numpy as np
 from art.defences.preprocessor.preprocessor import PreprocessorPyTorch as _PreprocessorPyTorch
-from abc import abstractmethod
 from typing import Optional, Tuple, TYPE_CHECKING
-
+from oscar.utils import bmap
 
 class PreprocessorPyTorch(_PreprocessorPyTorch):
-    """ A PyTorch-style preprocessor defense base class.
+    """
+    A PyTorch-style preprocessor defense base class.
     We implement more generalized features:
     1. Device choice;
     2. __call__();
     3. estimate_gradient().
     """
-
-    def __init__(self, device_type: str = "gpu"):
+    def __init__(self, torch_module, device_type: str = 'gpu', batch_dim=0, batch_size=1):
         super().__init__()
 
-        # Set device
-        if device_type == "cpu" or not torch.cuda.is_available():
-            self._device = torch.device("cpu")
-        else:
-            cuda_idx = torch.cuda.current_device()
-            self._device = torch.device("cuda:{}".format(cuda_idx))
+        self.module = torch_module
+        if isinstance(self.module, dict):
+            from armory.utils.config_loading import load
+            self.module = load(torch_module)
 
-    @abstractmethod
-    def forward(self, x, **kwargs):
-        pass
+        assert isinstance(self.module, torch.nn.Module)
 
-    @abstractmethod
-    def estimate_forward(self, x, **kwargs):
-        pass
+        self.module_device = 'cpu'
+        if device_type == 'gpu':
+            if torch.cuda.is_available():
+                logger.info("Putting torch module on GPU")
+                self.module.cuda()
+                self.module_device = 'cuda'
+            else:
+                logger.warning("Tried to put torch module on GPU, however no GPU detected.")
 
-    def __call__(self, x: np.ndarray, y: Optional[np.ndarray] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-        """
-        Apply local spatial smoothing to sample `x`.
-        :param x: Sample to smooth with shape `(batch_size, width, height, depth)`.
-        :param y: Labels of the sample `x`. This function does not affect them in any way.
-        :return: Smoothed sample.
-        """
-        import torch  # lgtm [py/repeated-import]
+        self.batch_dim = batch_dim
+        self.batch_size = batch_size
 
-        x = torch.tensor(x.copy(), device=self._device)
-        if y is not None:
-            y = torch.tensor(y, device=self._device)
-
-        with torch.no_grad():
-            x, y = self.forward(x, y)
-
-        result = x.cpu().numpy()
-        if y is not None:
-            y = y.cpu().numpy()
-        return result, y
-
-    # Backward compatibility.
-    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray) -> np.ndarray:
-        import torch  # lgtm [py/repeated-import]
-
-        x = torch.tensor(x.copy(), device=self._device, requires_grad=True)
-        grad = torch.tensor(grad, device=self._device)
-
-        x_prime = self.estimate_forward(x)
-        x_prime.backward(grad)
-        x_grad = x.grad.detach().cpu().numpy()
-        if x_grad.shape != x.shape:
-            raise ValueError("The input shape is {} while the gradient shape is {}".format(x.shape, x_grad.shape))
-        return x_grad
-
-    @property
-    def apply_fit(self):
-        return True
 
     @property
     def apply_predict(self):
         return True
 
-    def fit(self, x, y=None, **kwargs):
+
+    def __call__(self, x: np.ndarray, y: Optional[np.ndarray] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        def _numpy_forward(x):
+            with torch.no_grad():
+                x = torch.tensor(x, device=self.module_device)
+                x, _ = self.forward(x, y)
+                x = x.cpu().numpy()
+
+                return x
+
+        x = bmap(_numpy_forward, x, batch_dim=self.batch_dim, batch_size=self.batch_size)
+
+        # art.defenses.preprocessor.Preprocessor wants y
+        return x, y
+
+
+    def forward(
+        self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None
+    ) -> Tuple["torch.Tensor", Optional["torch.Tensor"]]:
+        # torch.nn.Module does not typically take y as input
+        x = self.module(x)
+
+        # art.defenses.preprocessor.Preprocessor wants y
+        return x, y
+
+
+    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray) -> np.ndarray:
+        def _numpy_estimate_gradient(x, grad):
+            # Move sample to torch and call estimate_forward
+            x = torch.tensor(x, device=self.module_device, requires_grad=True)
+            x_fwd, _ = self.estimate_forward(x)
+
+            # Move grad sample to torch and use autograd
+            grad = torch.tensor(grad, device=self.module_device)
+            x_fwd.backward(grad)
+
+            # Get gradient of input
+            x_grad = x.grad.detach().cpu().numpy()
+
+            return x_grad
+
+        x_grad = bmap(_numpy_estimate_gradient, x, grad, batch_dim=self.batch_dim, batch_size=self.batch_size)
+
+        # Gradient should be same shape as input
+        assert x_grad.shape == x.shape
+
+        return x_grad
+
+
+    def estimate_forward(self, x: "torch.Tensor", y: Optional["torch.Tensor"] = None) -> "torch.Tensor":
+        # torch.nn.Moduel does not typically take y as input
+        x = self.module.estimate_forward(x)
+
+        # art.defenses.preprocessor.Preprocessor wants y
+        return x, y
+
+
+    @property
+    def apply_fit(self):
+        return False
+
+
+    def fit(self, x: np.ndarray, y: Optional[np.ndarray] = None, **kwargs) -> None:
         return None
