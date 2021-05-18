@@ -105,13 +105,14 @@ def tensor_to_image(tensor, gamma=1.):
     return image
 
 
-def create_model(config_path, weights_path, device='cuda', score_thresh=None, iou_thresh=None):
+def create_model(config_path, weights_path, device='cuda', score_thresh=None, iou_thresh=None, config={}):
     """
         Creates detectron2 model with specified weights, turns off all parameter gradients, and retrives model metadata.
 
         Parameters:
             config_path (str): Path to model configuration.
             weights_path (str): A path or url to weights.
+            config (dict): Configuration values to overwrite config.
 
         Returns:
             nn.Module: Model loaded with specified weights.
@@ -121,13 +122,19 @@ def create_model(config_path, weights_path, device='cuda', score_thresh=None, io
     cfg = get_cfg()
     cfg.merge_from_file(config_path)
 
-    # FIXME: Unsure whether we should take a cfg object and merge it, but this works for now
+    # Support old arguments
     if score_thresh is not None:
-        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = score_thresh
+        config['MODEL.ROI_HEADS.SCORE_THRESH_TEST'] = score_thresh
     if iou_thresh is not None:
         # FIXME: Why is this a list?
-        cfg.MODEL.ROI_HEADS.IOU_THRESHOLDS = [iou_thresh]
-    cfg.MODEL.DEVICE = str(device)
+        config['MODEL.ROI_HEADS.IOU_THRESHOLDS'] = [iou_thresh]
+    config['MODEL.DEVICE'] = str(device)
+
+    # Create list to overwrite cfg
+    config_list = []
+    for item in config.items():
+        config_list.extend(item)
+    cfg.merge_from_list(config_list)
 
     # Create model to attack...
     model = build_model(cfg)

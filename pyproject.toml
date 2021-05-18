@@ -10,6 +10,7 @@ include = ["oscar/model_zoo/**/*.config", "oscar/model_zoo/**/*.pth"]
 python = "^3.7"
 numpy = "1.19.2"
 torch = "1.7.0"
+redner-gpu = "0.4.15"
 setGPU = "^0.0.7"
 opencv-python = "^4.2.0"
 kornia = "^0.4.0"

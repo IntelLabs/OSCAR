@@ -1,0 +1,7 @@
+newmtl /Game/Carla/Static/Pedestrians/Materials/Male/MI_Male1Cloth_v1_MI_Male1Cloth_v1
+	map_Kd MI_Male1Cloth_v1_MI_Male1Cloth_v1_D.bmp
+	map_Ks MI_Male1Cloth_v1_MI_Male1Cloth_v1_S.bmp
+
+newmtl /Game/Carla/Static/Pedestrians/Materials/Male/MI_Male1Skin_MI_Male1Skin
+	map_Kd MI_Male1Skin_MI_Male1Skin_D.bmp
+	map_Ks MI_Male1Skin_MI_Male1Skin_S.bmp
