@@ -1,4 +1,4 @@
-FROM twosixarmory/pytorch:0.12.3
+FROM twosixarmory/pytorch:0.13.3
 
 RUN apt-get update
 
@@ -6,7 +6,7 @@ RUN apt-get update
 RUN apt-get install -y libglib2.0-0 libsm6 libxrender-dev libxext6 libgl1-mesa-glx
 
 # Install system-level dependencies that mmskeleton depends upon
-RUN apt-get install -y --no-install-recommends cuda-compiler-$CUDA_PKG_VERSION cuda-command-line-tools-$CUDA_PKG_VERSION
+RUN apt-get install -y --no-install-recommends cuda-compiler-11-2 cuda-command-line-tools-11-2
 
 # Remove Pillow dependency because it is version 7.1.2 instead of 7.0.0
 #RUN /opt/conda/bin/pip uninstall -y Pillow
@@ -26,11 +26,10 @@ RUN apt-get install -y --no-install-recommends cuda-compiler-$CUDA_PKG_VERSION c
 # Armory submissions process does not support COPY in Dockerfile, so we
 # manually install the dependencies here. Hopefully they don't get out of sync!
 # Install Cython first because pycocotools will complain otherwise
-RUN /opt/conda/bin/pip install Cython==0.29.21
+RUN /opt/conda/bin/pip install Cython==0.29.23
 RUN /opt/conda/bin/pip install kornia==0.4.1 \
-                               opencv-python==4.4.0.46 \
                                pycocotools==2.0.2 \
-                               pytorch_lightning==1.0.6
+                               pytorch_lightning==1.3.5
 
 # Install mmskeleton and its dependencies
 # Clone mmskeleton and add missing __init__.py files for `pip install` to discover the `mmskeleton.deprecated.datasets` package
@@ -47,10 +46,10 @@ RUN printf "\e[1;33m%s\e[0m\n" "WARNING: The 'mmskeleton' package requires GPU d
     && printf "\e[1;33m%s\e[0m\n" "For more details, please see these links:" \
     && printf "\e[1;33m%s\e[0m\n" "1. https://github.com/NVIDIA/nvidia-docker/wiki/Advanced-topics#default-runtime" \
     && printf "\e[1;33m%s\e[0m\n" "2. https://github.com/NVIDIA/nvidia-docker/issues/595#issuecomment-519714769" \
-    && /opt/conda/bin/pip install /tmp/mmskeleton/
+    && /opt/conda/bin/pip install mmcv==1.2.6 /tmp/mmskeleton/ --no-build-isolation
 
 # Install detectron2 using pip
-RUN /opt/conda/bin/pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu101/torch1.6/index.html
+RUN /opt/conda/bin/pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu110/torch1.7/detectron2-0.4%2Bcu110-cp37-cp37m-linux_x86_64.whl
 
 # Set cache directory for Detectron2 models
 ENV FVCORE_CACHE="/tmp"

@@ -18,7 +18,7 @@ from detectron2.data import MetadataCatalog
 from detectron2.data.catalog import Metadata
 from detectron2.utils.visualizer import Visualizer
 from detectron2.structures.instances import Instances
-from detectron2.structures.boxes import Boxes
+from detectron2.structures.boxes import Boxes, BoxMode
 
 import pytorch_lightning as pl
 
@@ -239,7 +239,7 @@ def compute_bounding_boxes(alphas, multiple=1):
     return bboxes
 
 
-def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', gamma=1., transforms=None):
+def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', gamma=1., transforms=None, bbox_mode=BoxMode.XYXY_ABS):
     """
         Creates inputs for Detectron2 model from images with specified groundtruth bounding boxes and class.
         Will convert image-channel format to specified format and add gamma correction to images.
@@ -267,6 +267,7 @@ def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', g
             raise Exception("Unusual tensor range [", image.min(), ",", image.max(), "]; expected [0, 1].")
 
         # Flip channels as necessary
+        assert input_format in ['RGB', 'BGR']
         if input_format == 'BGR':
             image = image.flip(0)
 
@@ -295,7 +296,8 @@ def create_inputs(images, gt_bboxes=None, gt_classes=None, input_format='BGR', g
 
         if gt_bboxes is not None and gt_classes is not None:
             inputs['instances'] = Instances(image.shape[1:3])
-            inputs['instances'].gt_boxes = Boxes(gt_bboxes[i])
+            inputs['instances'].gt_boxes = Boxes(BoxMode.convert(gt_bboxes[i], bbox_mode, BoxMode.XYXY_ABS))
+
             inputs['instances'].gt_classes = gt_classes[i]
 
         batched_inputs.append(inputs)

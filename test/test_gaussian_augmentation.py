@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
-from oscar.defences.preprocessor.gaussian_augmentation import GaussianAugmentation, GaussianAugmentationPyTorch
+from oscar.defences.preprocessor.gaussian_augmentation import GaussianAugmentation
 
 import pytest
 from pytest import approx
@@ -42,8 +42,12 @@ def test_gaussian_augmentation_clip01_forward(gaussian_augmentor_clip01, real_im
     assert np.all(0 <= x_noised)
 
 
-def test_gaussian_augmentation_gradient(gaussian_augmentor_clip01, real_images_112x112):
-    x = torch.tensor(real_images_112x112, requires_grad=True, device=gaussian_augmentor_clip01.module_device)
-    x_noised, _ = gaussian_augmentor_clip01.forward(x)
+def test_gaussian_augmentation_estimate_gradient(gaussian_augmentor_clip01, real_images_112x112):
+    x = real_images_112x112
 
-    assert x_noised.grad_fn is not None
+    x_noised, _ = gaussian_augmentor_clip01(x)
+    grad = np.ones_like(x_noised)
+
+    grad = gaussian_augmentor_clip01.estimate_gradient(x, grad)
+
+    assert grad is not None

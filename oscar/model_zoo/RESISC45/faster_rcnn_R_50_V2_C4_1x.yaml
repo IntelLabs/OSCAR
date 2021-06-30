@@ -1,6 +1,6 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
-  WEIGHTS: "oscar:///home/ccorneli/Projects/big_transfer/logs/bit_resisc45/resisc45_2020-05-28_124512/bit.pkl"
+  WEIGHTS: "oscar://~/Projects/big_transfer/logs/bit_resisc45/resisc45_2020-05-28_124512/bit.pkl"
   PIXEL_MEAN: [127.5, 127.5, 127.5]
   PIXEL_STD: [127.5, 127.5, 127.5]
   BACKBONE:

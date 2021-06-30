@@ -228,6 +228,7 @@ def get_art_model(
         loss=nn.CrossEntropyLoss(),
         input_shape=(3, 300, 18, 1),
         nb_classes=101,
+        preprocessing=None
     )
 
     return wrapped_model

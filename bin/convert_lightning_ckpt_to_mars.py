@@ -23,7 +23,7 @@ def _convert_state_dict(state_dict, src_prefix, dst_prefix):
 if __name__ == "__main__":
     src_ckpt, tgt_pth = sys.argv[1:]
 
-    ckpt = torch.load(src_ckpt)
+    ckpt = torch.load(src_ckpt, map_location=torch.device('cpu'))
     state_dict = ckpt['state_dict']
 
     # Delete unwanted keys.

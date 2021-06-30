@@ -91,24 +91,19 @@ class MultichannelSemanticSegmentorPyTorch(torch.nn.Module, ExTransform):
         assert x.shape[4] == 3
         assert 0 <= x.min() <= x.max() <= 1
 
+        predictions = self.detectron2.estimate_forward(x[0])
+
+        assert len(predictions) == len(x[0])
+
         segmaps = []
         for x_batch in x:
             segmaps_batch = []
-            for x_image in x_batch:
-                # Add batch dimension
-                x_image = x_image.unsqueeze(0)
-
-                predictions = self.detectron2.estimate_forward(x_image)
-
-                # Remove batch dimension
-                assert len(predictions) == 1
-                instances = predictions[0]
-
+            for instances, x_image in zip(predictions, x[0]):
                 # For each class
                 segmaps_image = []
                 for label in range(self.nb_channels):
                     # Set to mean-channel image to preserve gradient but fill with 0's
-                    label_mask = x_image[0].mean(dim=-1)
+                    label_mask = x_image.mean(dim=-1)
                     label_mask.data[:] = 0
 
                     label_idx = (instances.pred_classes == label)

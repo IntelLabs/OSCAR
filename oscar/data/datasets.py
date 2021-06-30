@@ -113,6 +113,8 @@ def ucf101(batch_size=1, **kwargs):
 
     return dataloader
 
+def ucf101_clean(batch_size=1, **kwargs):
+    return ucf101(batch_size=batch_size, **kwargs)
 
 # shuffle data processed by preprocessing_fn
 def shuffle_fn(x, shuffle_axes=[]):
@@ -128,7 +130,7 @@ def shuffle_fn(x, shuffle_axes=[]):
 
 # shuffle ucf101 clean dataset
 # To do: UCF101 scenario needs to load dataset with "shuffle_axes" parameters; otherwise, default value will be used and shuffling will be disabled.
-def ucf101clean_shuffle(
+def ucf101_clean_shuffle(
     split: str = "train",
     epochs: int = 1,
     batch_size: int = 1,

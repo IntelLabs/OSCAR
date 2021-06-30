@@ -7,11 +7,69 @@ import logging
 from pathlib import Path
 from typing import Union, Optional, Callable, Tuple, List, Any, Dict
 
+import pytorch_lightning as pl
+from torch.utils.data import DataLoader
+
 from oscar.data.video import VideoFolder
 from oscar.data.video import StackingVideoLoader
+from oscar.data.transforms import ExCompose
 
 logger = logging.getLogger(__name__)
 
+
+class UCF101DataModule(pl.LightningDataModule):
+    def __init__(
+        self,
+        frames_root,
+        annotation_dir,
+        train = True,
+        transform = None,
+        num_workers = 1,
+    ):
+        super().__init__()
+
+        self.frames_root = frames_root
+        self.annotation_dir = annotation_dir
+        self.train = train
+        self.transform = ExCompose([transform], return_kwargs=True)
+        self.num_workers = num_workers
+
+        self.file_patterns = ["{:05d}.jpg"]
+
+    @classmethod
+    def add_argparse_args(cls, parser):
+        group = parser.add_argument_group(cls.__name__)
+        group.add_argument("--frames_root", type=str, required=True)
+        group.add_argument("--annotation_dir", type=str, required=True)
+        group.add_argument("--train", action='store_true')
+        group.add_argument("--num_workers", type=int, default=1)
+
+        return parser
+
+    def prepare_data(self):
+        UCF101Dataset(self.frames_root,
+                      self.annotation_dir,
+                      self.file_patterns)
+
+    def setup(self, stage=None):
+        if stage != 'test':
+            raise f"Unsupported stage: {stage}"
+
+        self.dataset = UCF101Dataset(frames_root=self.frames_root,
+                                     annotation_dir=self.annotation_dir,
+                                     file_patterns=self.file_patterns,
+                                     train=self.train,
+                                     transform=self.transform)
+
+    def test_dataloader(self):
+        # NOTE: We use the identity function as collation because default collator
+        #       does not like PosixPaths. There isn't really any collating to do
+        #       anyways because batch_size=1 since these are videos of arbitary
+        #       length.
+        return DataLoader(self.dataset,
+                          batch_size=1,
+                          num_workers=self.num_workers,
+                          collate_fn=lambda data: data)
 
 class UCF101Dataset(VideoFolder):
     def __init__(

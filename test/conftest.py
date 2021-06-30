@@ -10,19 +10,24 @@ import numpy as np
 from PIL import Image
 from skimage.transform import rescale
 from skimage.data import stereo_motorcycle
-from MARS.opts import parse_opts
-from MARS.dataset.dataset import get_test_video
-from oscar.defences.preprocessor.detectron2 import Detectron2Preprocessor
+from oscar.defences.preprocessor.detectron2 import Detectron2PreprocessorPyTorch
+import torch
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="session")
-def detectron2_model():
+@pytest.fixture(scope="session", params=[True, False])
+def detectron2_model(request):
     logger.warning("Creating Detectron2 Model (you should only see this message once!)")
-    return Detectron2Preprocessor(config_path="detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml",
-                                  weights_path="detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl",
-                                  score_thresh=0.5)
+    dt2 = Detectron2PreprocessorPyTorch(config_path="detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml",
+                                        weights_path="detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl",
+                                        score_thresh=0.5,
+                                        resize=request.param)
+
+    if torch.cuda.is_available():
+        dt2 = dt2.cuda()
+
+    return dt2
 
 
 @pytest.fixture
@@ -55,3 +60,10 @@ def real_images_112x112(mask_color):
     imgs = np.clip(imgs, 0, 1)
 
     return imgs
+
+@pytest.fixture
+def real_images_112x112_torch(real_images_112x112):
+    x = torch.from_numpy(real_images_112x112)
+    if torch.cuda.is_available():
+        x = x.cuda()
+    return x

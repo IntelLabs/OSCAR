@@ -7,7 +7,7 @@ ARMORY_CONFIG ?= $(HOME)/.armory/config.json
 MODEL_ZOO = oscar/model_zoo
 POETRY = $(HOME)/.poetry/bin/poetry
 ARMORY = $(shell which armory)
-DOCKER_IMAGE_TAG = intellabs/oscar:0.12.3
+DOCKER_IMAGE_TAG = intellabs/oscar:0.13.3
 JQ = jq --indent 4 -r
 GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git lib/mmskeleton/mmskeleton/.git
 MAKEFILE_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -76,7 +76,7 @@ $(DATASETS):
 #
 $(POETRY):
 > curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | POETRY_VERSION="1.0.5" python
-> sed -i "s/python/python3/g" $(POETRY)
+> sed -i "s/python$$/python3/g" $(POETRY)
 
 .PHONY: poetry
 poetry: $(POETRY) ## Launch poetry with ARGS
@@ -88,6 +88,10 @@ lib/%/.git:
 .venv: $(POETRY) $(GIT_SUBMODULES) pyproject.toml
 > $(POETRY) run pip install pip==20.2.4
 > $(POETRY) install
+> $(POETRY) run pip install https://download.pytorch.org/whl/cu110/torch-1.7.0%2Bcu110-cp37-cp37m-linux_x86_64.whl \
+                            https://download.pytorch.org/whl/cu110/torchvision-0.8.1%2Bcu110-cp37-cp37m-linux_x86_64.whl
+> $(POETRY) run pip uninstall -y tensorflow
+> $(POETRY) run pip install --use-feature=2020-resolver tensorflow-gpu==1.15.0
 > touch $@
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
 > @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
@@ -118,7 +122,9 @@ submission/INTL_Dockerfile: docker/Dockerfile submission/
 
 .PHONY: submission
 submission: submission/INTL_Dockerfile \
-            ucf101_submission
+            .venv \
+            ucf101_submission \
+            dapricot_submission
 > $(info $(GREEN)All submission files should be in the $@/ folder now.$(RESET))
 
 .PHONY: clean_submission
@@ -150,6 +156,20 @@ $(RESULTS)/%.json.armory_docker_run: $(RESULTS)/%.json | .venv
 
 $(RESULTS)/%.json.armory_docker_check: $(RESULTS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
+
+$(SCENARIOS)/%.json.armory_run: $(SCENARIOS)/%.json | .venv
+> $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_run\"" $< | $(POETRY) run armory run --no-docker - $(ARGS)
+
+$(SCENARIOS)/%.json.armory_check: $(SCENARIOS)/%.json | .venv
+> $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_check\"" $< | $(POETRY) run armory run --no-docker --check - $(ARGS)
+
+$(SCENARIOS)/%.json.armory_docker_run: $(SCENARIOS)/%.json | .venv
+> $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_run\"" $< | $(POETRY) run armory run - $(ARGS)
+
+$(SCENARIOS)/%.json.armory_docker_check: $(SCENARIOS)/%.json | .venv
+> $(JQ) ".sysconfig.output_dir = \"$(*D)/armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
+
+
 
 $(SCENARIOS)/:
 > mkdir -p $@

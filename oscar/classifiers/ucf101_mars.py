@@ -432,6 +432,7 @@ def get_art_model(
         input_shape=(None, 240, 320, 3),
         channels_first=False,
         nb_classes=101,
+        preprocessing=None,
         clip_values=(0.0, 1.0),
         device_type='cpu', # XXX: All inputs will live on CPU and we will move them to the GPU as necessary
         **wrapper_kwargs,

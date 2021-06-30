@@ -50,5 +50,8 @@ Once configured, you can run our UCF101 defense submission via:
 make run_ucf101_submission
 ```
 
+## Contributing
+External contributions are not being accepted and pull requests will not be accepted.
+
 ## Acknowledgements
 This material is based upon work supported by the Defense Advanced Research Projects Agency (DARPA) under Contract No. HR001119S0026.

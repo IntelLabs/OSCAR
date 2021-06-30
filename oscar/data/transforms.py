@@ -17,8 +17,9 @@ class ExTransform:
 
 
 class ExCompose(T.Compose, ExTransform):
-    def __init__(self, transforms):
+    def __init__(self, transforms, return_kwargs=False):
         super().__init__(transforms)
+        self.return_kwargs = return_kwargs
 
     def __call__(self, x_or_dict, **kwargs):
         if isinstance(x_or_dict, dict):
@@ -35,6 +36,10 @@ class ExCompose(T.Compose, ExTransform):
                 x = transform(x, **kwargs)
             else:
                 x = transform(x)
+
+        kwargs['x'] = x
+        if self.return_kwargs:
+            x = kwargs
 
         return x
 

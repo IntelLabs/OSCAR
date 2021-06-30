@@ -11,8 +11,7 @@ from typing import Union, Optional, Callable, Tuple, List, Any, Dict
 
 import torch
 import torchvision
-from torchvision.datasets import ImageFolder
-from torchvision.datasets.folder import make_dataset as _make_dataset
+from oscar.data.image import ImageFolder
 
 logger = logging.getLogger(__name__)
 
@@ -27,31 +26,23 @@ class VideoFolder(ImageFolder):
         is_valid_file: Optional[Callable[[str], bool]] = None,
         is_valid_video: Optional[Callable[[str], bool]] = None,
     ):
-        # BEGIN: Monkey patch make_dataset
-        torchvision.datasets.folder.make_dataset = VideoFolder.cached_make_dataset
         super().__init__(root,
                          transform=transform,
                          target_transform=target_transform,
                          loader=video_loader,
                          is_valid_file=is_valid_file)
-        torchvision.datasets.folder.make_dataset = _make_dataset
-        # END: Monkey patch make_dataset
 
         # Reduce individual samples (i.e., frames) to videos and make labels strings again
-        self.samples = self.samples_to_videos(self.samples,
-                                              is_valid_video=is_valid_video,
-                                              idx_to_class=self.classes)
+        self.samples = self.samples_to_videos(self.samples, is_valid_video)
         self.targets = [s[1] for s in self.samples]
 
     @staticmethod
-    def samples_to_videos(samples, is_valid_video=None, idx_to_class=None):
+    def samples_to_videos(samples, is_valid_video):
         # samples = [(path, label), ...]
         paths = defaultdict(list)
         labels = {}
 
         for path, label in samples:
-            label = idx_to_class[label]
-
             # XXX: Would be nice to use Path.parent, but it's slow :(
             video = '/'.join(path.split('/')[:-1])
             paths[video].append(path)
@@ -69,44 +60,27 @@ class VideoFolder(ImageFolder):
 
         return videos
 
-    @staticmethod
-    def cached_make_dataset(
-        directory: str,
-        class_to_idx: Dict[str, int],
-        extensions: Optional[Tuple[str, ...]] = None,
-        is_valid_file: Optional[Callable[[str], bool]] = None,
-    ) -> List[Tuple[str, int]]:
-        cache = Path(directory) / "make_dataset.cache"
-
-        if cache.exists():
-            logger.info("Loading dataset cache: %s", cache)
-            instances = pickle.load(cache.open('rb'))
-        else:
-            logger.info("Making dataset cache: %s", cache)
-            instances = _make_dataset(directory, class_to_idx, extensions, is_valid_file)
-            logger.info("Saving dataset cache: %s", cache)
-            pickle.dump(instances, cache.open('wb'))
-
-        return instances
-
 
 class StackingVideoLoader(object):
     def __init__(self, patterns: List[str], sampler: Optional[Callable[[int], int]] = None):
         self.patterns = patterns
         self.sampler = sampler
         if self.sampler is None:
-            self.sampler = range
+            self.sampler = NoSampler()
 
     def __call__(self, paths: List[str]) -> torch.Tensor:
-        # XXX: Assumes all paths have the same parent path
         parent = Path(paths[0]).parent
+
+        # Make sure all paths have the same parent path
+        for path in paths:
+            assert path.startswith(str(parent))
 
         # XXX: This can be very slow. How can we cache these values?
         lengths = [self._find_pattern_length(parent, pattern, paths) for pattern in self.patterns]
         length = min(lengths)
 
         # Sample and read frame tensors
-        indices = self.sampler(length)
+        indices = torch.LongTensor(self.sampler(length))
         frames = [self._read_frame(parent, i) for i in indices]
         video = torch.stack(frames)
 
@@ -148,6 +122,11 @@ class StackingVideoLoader(object):
         return frame
 
 
+class NoSampler(object):
+    def __call__(self, length: int) -> int:
+        return torch.LongTensor(range(length))
+
+
 class ClipSampler(object):
     def __init__(self, length: int = 16, step: int = 1):
         self.sample_length = (length - 1) * step + 1
@@ -159,7 +138,7 @@ class ClipSampler(object):
         # XXX: Does this sample near the end of the video?
         sample_start = torch.randint(length - self.sample_length, size=(1,))[0].item()
 
-        return range(sample_start, sample_start + self.sample_length, self.sample_step)
+        return torch.LongTensor(range(sample_start, sample_start + self.sample_length, self.sample_step))
 
 
 class MiddleClipSampler(object):
@@ -167,9 +146,9 @@ class MiddleClipSampler(object):
         self.sample_length = (length - 1) * step + 1
         self.sample_step = step
 
-    def __cal__(self, length: int) -> int:
+    def __call__(self, length: int) -> int:
         assert length >= self.sample_length
 
         sample_start = length // 2 - self.sample_length // 2
 
-        return range(sample_start, sample_start + self.sample_length, self.sample_step)
+        return torch.LongTensor(range(sample_start, sample_start + self.sample_length, self.sample_step))

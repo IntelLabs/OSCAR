@@ -3,7 +3,6 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-
 from typing import Dict, Generator, List, Optional, Tuple, Union
 
 from detectron2.layers import cat, interpolate
@@ -13,7 +12,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from oscar.defences.preprocessor.detectron2 import Detectron2Preprocessor
+from oscar.defences.preprocessor.preprocessor_pytorch import PreprocessorPyTorch
+from oscar.defences.preprocessor.detectron2 import Detectron2PreprocessorPyTorch
 from oscar.utils.layers import TwoDeeArgmax
 from oscar.utils.transforms.keypoints import (
     CocoToOpenposeKeypoints,
@@ -91,7 +91,6 @@ def _estimate_heatmaps(
     dt2_model: GeneralizedRCNN,
     batched_inputs: List[dict],
     max_instances: int,
-    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     # Reference: https://github.com/IntelLabs/GARD/blob/e4ed5b59f9736dcc0879c63d9eac243a135aab01/notebook/detectron2_keypoint_heatmaps.ipynb
 
@@ -124,9 +123,8 @@ def _estimate_heatmaps(
         if num_instances == 0:
             num_empty_heatmaps += 1
 
-        canvas = torch.zeros((max_instances, num_keypoints, H, W))
-        if device is not None:
-            canvas = canvas.to(device)
+        # Put canvas on same device as maps because code below assumes it anyways.
+        canvas = torch.zeros((max_instances, num_keypoints, H, W), device=maps.device)
 
         for i in range(min(max_instances, num_instances)):
             outsize = (int(heights_ceil[i]), int(widths_ceil[i]))
@@ -177,7 +175,25 @@ def _heatmaps_to_keypoints(heatmaps: torch.Tensor, argmax: nn.Module) -> torch.T
     return torch.stack(output)
 
 
-class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
+class VideoToKeypointsPreprocessor(PreprocessorPyTorch):
+    def __init__(
+        self,
+        *args,
+        device_type: str = "gpu",
+        batch_dim = 0,
+        batch_size = 1,
+        **kwargs,
+    ):
+        torch_module = VideoToKeypointsPreprocessorPyTorch(*args, **kwargs)
+
+        super().__init__(torch_module, device_type=device_type, batch_dim=batch_dim, batch_size=batch_size)
+
+    # NOTE: VideoToKeypointsPreprocessorPyTorch implements its own estimate_gradient so we call that here
+    #       rather than use PreprocessorPyTorch's nice batching implementation.
+    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray) -> np.ndarray:
+        return self.module.estimate_gradient(x, grad, device=self.module_device)
+
+class VideoToKeypointsPreprocessorPyTorch(Detectron2PreprocessorPyTorch):
     def __init__(
         self,
         config_path: str,
@@ -186,19 +202,16 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
         input_format: str = "RGB",
         channels_first: bool = False,
         clip_values: Tuple[float, float] = (0.0, 1.0),
-        batch_frames_per_video: Optional[int] = 100,
+        batch_frames_per_video: Optional[int] = 1,
         limit_frames_processed: Optional[int] = 300,
         keypoint_output_format: str = "openpose",
         convert_to_stgcn_input: bool = True,
-        device_type: str = "gpu",
     ):
-
         super().__init__(
             config_path,
             weights_path,
             score_thresh=score_thresh,
             iou_thresh=None,
-            device_type=device_type,
         )
 
         del self.aug
@@ -209,13 +222,13 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
         self.input_video_transform = _make_input_transform(
             input_format, channels_first, clip_values
-        ).to(self._device)
+        )
 
         self.output_keypoints_transform = _make_output_transform(
             keypoint_output_format, convert_to_stgcn_input
-        ).to(self._device)
+        )
 
-        self.argmax_layer = TwoDeeArgmax(temperature=100).to(self._device)
+        self.argmax_layer = TwoDeeArgmax(temperature=100)
 
     def _iter_preprocessed_inputs(
         self, x: torch.Tensor
@@ -230,14 +243,13 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
             video = self.input_video_transform(video)
 
             yield [
-                _create_input_dict(video[t], device=self._device)
+                _create_input_dict(video[t])
                 for t in range(video.size(0))
             ]
 
     def forward(
         self, x: torch.Tensor, y: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-
         self.model.eval()
 
         output = list()
@@ -255,9 +267,25 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
                     frame_keypoints = instances.pred_keypoints[: self.max_instances]
 
                     if frame_keypoints.size(0) == 0:
-                        # no instances were detected, passing zeros as keypoints
-                        size = (self.max_instances,) + frame_keypoints.size()[1:]
-                        frame_keypoints = torch.zeros(size).to(self._device)
+                        # no instances were detected
+                        if len(video_keypoints) > 0:
+                            # interpolating last detected keypoints
+                            frame_keypoints = video_keypoints[-1]
+                        else:
+                            # no keypoints detected in first frame, passing zeros
+                            size = (self.max_instances,) + frame_keypoints.size()[1:]
+                            frame_keypoints = torch.zeros(size, device=frame_keypoints.device)
+
+                    # no keypoints detected in the frame, passing zeros
+                    else:
+                        if len(video_keypoints) > 0:
+                            prev_frame_keypoints = video_keypoints[-1]
+                            x_disp = torch.pow((torch.mean(prev_frame_keypoints[0, :, 0]) - torch.mean(frame_keypoints[0, :, 0])), 2)
+                            y_disp = torch.pow((torch.mean(prev_frame_keypoints[0, :, 1]) - torch.mean(frame_keypoints[0, :, 1])), 2)
+
+                            thre = 50000
+                            if x_disp + y_disp > thre:
+                                frame_keypoints = video_keypoints[-1]
 
                     video_keypoints.append(frame_keypoints)
 
@@ -266,7 +294,7 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
             output.append(video_keypoints)
 
-        return torch.stack(output), y
+        return torch.stack(output)
 
     def estimate_forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         self.model.eval()
@@ -278,7 +306,6 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
                 dt2_model=self.model,
                 batched_inputs=video_inputs,
                 max_instances=self.max_instances,
-                device=self._device,
             )
 
             video_keypoints = list()
@@ -291,10 +318,25 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
                     frame_keypoints = list()
                     for m in range(M):
                         hmaps = video_heatmaps[t, m]
-                        frame_keypoints.append(
-                            _heatmaps_to_keypoints(hmaps, self.argmax_layer)
-                        )
+
+                        # keypoints were either detected or this is first frame
+                        if int(hmaps.sum()) != 0 or len(video_keypoints) == 0:
+                            # keypoints were either detected or this is first frame
+                            keypts = _heatmaps_to_keypoints(hmaps, self.argmax_layer)
+                            frame_keypoints.append(keypts)
+                        else:
+                            # interpolating last detected keypoints for instance m
+                            frame_keypoints.append(video_keypoints[-1][m])
+
                     frame_keypoints = torch.stack(frame_keypoints)
+                    if len(video_keypoints) != 0:
+                        prev_frame_keypoints = video_keypoints[-1]
+                        x_disp = torch.pow((torch.mean(prev_frame_keypoints[0, :, 0]) - torch.mean(frame_keypoints[0, :, 0])), 2)
+                        y_disp = torch.pow((torch.mean(prev_frame_keypoints[0, :, 1]) - torch.mean(frame_keypoints[0, :, 1])), 2)
+
+                        thre = 50000
+                        if x_disp + y_disp > thre:
+                            frame_keypoints = video_keypoints[-1]
                     video_keypoints.append(frame_keypoints)
 
             else:
@@ -307,7 +349,7 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
                     # XXX: hack to pass dummy gradients
                     keypoints_shape = (self.max_instances, 17, 3)
-                    dummy_keypoints = torch.zeros(keypoints_shape).to(self._device)
+                    dummy_keypoints = torch.zeros(keypoints_shape, device=frame.device)
                     dummy_keypoints[:, :, 2] += frame.norm()
                     # XXX: have set the confidences as norm of the frame
 
@@ -320,7 +362,7 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
         return torch.stack(output)
 
-    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray) -> np.ndarray:
+    def estimate_gradient(self, x: np.ndarray, grad: np.ndarray, device) -> np.ndarray:
         N, T = x.shape[:2]
 
         output = list()
@@ -336,11 +378,11 @@ class VideoToKeypointsPreprocessor(Detectron2Preprocessor):
 
                     frame_tensor = torch.tensor(
                         x[n : n + 1, t : t + 1].copy(),
-                        device=self._device,
+                        device=device,
                         requires_grad=True,
                     )
                     frame_grads_in_tensor = torch.tensor(
-                        grad[n : n + 1, :, t : t + 1], device=self._device
+                        grad[n : n + 1, :, t : t + 1], device=device
                     )
 
                     frame_keypoints_tensor = self.estimate_forward(frame_tensor)

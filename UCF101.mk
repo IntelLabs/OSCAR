@@ -4,7 +4,7 @@ UCF101_VARIANTS ?= $(DATASETS)/ucf101_and_variants# Ideally this would be off th
 # Nothing below here is settable
 UCF101_FRAMES = $(UCF101_VARIANTS)/ucf101_frames
 UCF101_FRAMES_SMOOTHED = $(UCF101_VARIANTS)/ucf101_frames_predictions/smoothed
-UCF101_FRAMES_MASKS = $(UCF101_VARIANTS)/ucf101_frames_predictions/InstanceSegmentation_w_predictions_RGB
+UCF101_FRAMES_MASKS = $(UCF101_VARIANTS)/ucf101_frames_predictions/COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x
 UCF101_ANNOT = $(UCF101_VARIANTS)/ucfTrainTestlist
 
 # Old frames directory was not all frames in UCF-101. We leave this here just in case.
@@ -27,7 +27,7 @@ $(MODEL_ZOO)/MARS/%/*.pth: $(MODEL_ZOO)/MARS/%/model_epoch*.ckpt
 > $(if $(word 2, $^),$(error There are $(words $^) ckpt files in $(MODEL_ZOO)/$%. There should only be one to convert: $^),)
 > $(POETRY) run python ./bin/convert_lightning_ckpt_to_mars.py $< $(patsubst %.ckpt, %.pth, $<)
 
-$(SCENARIOS)/ucf101clean_baseline_pretrained.json: $(SCENARIOS)/ucf101_baseline_pretrained.json
+$(SCENARIOS)/ucf101_clean_baseline_pretrained.json: $(SCENARIOS)/ucf101_baseline_pretrained.json
 > cat $< | $(JQ) '.dataset.name = "ucf101_clean"' > $@
 
 # Baseline JPEG defense.
@@ -75,13 +75,13 @@ $(SCENARIOS)/%_bgablation.json: $(SCENARIOS)/%.json
          | $(JQ) '.defense.type = "Preprocessor"' \
          | $(JQ) '.defense.kwargs.mask_color = [114.7748/255, 107.7354/255, 99.4750/255]' \
          | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
-         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2Preprocessor"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl"' > $@
 
 # Our ablation defense with Gaussian-DT2. Lower the threshold to decrease false negative rate.
 $(SCENARIOS)/%_bgablation_gaussian%std.json: $(SCENARIOS)/%_bgablation.json $(MODEL_ZOO)/detectron2/mask_rcnn_X_101_32x8d_FPN_3x_gaussian64truncated_8gpus/model_final.pth
-> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2Preprocessor"' \
+> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_sigma = $*/255.' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_clip_values = [0, 1]' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.score_thresh = 0.1' \
@@ -97,13 +97,13 @@ $(SCENARIOS)/%_palettedsemanticseg.json: $(SCENARIOS)/%.json
          | $(JQ) '.defense.type = "Preprocessor"' \
          | $(JQ) '.defense.kwargs.mask_color = [115/255, 108/255, 99/255]' \
          | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
-         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2Preprocessor"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl"' > $@
 
 # Our paletted semantic segmentation defense with Gaussian-DT2. Lower the threshold to decrease false negative rate.
 $(SCENARIOS)/%_palettedsemanticseg_gaussian%std.json: $(SCENARIOS)/%_palettedsemanticseg.json $(MODEL_ZOO)/detectron2/mask_rcnn_X_101_32x8d_FPN_3x_gaussian64truncated_8gpus/model_final.pth
-> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2Preprocessor"' \
+> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_sigma = $*/255.' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_clip_values = [0, 1]' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.score_thresh = 0.1' \
@@ -115,7 +115,7 @@ $(SCENARIOS)/%_mcsemanticseg.json: $(SCENARIOS)/%.json
          | $(JQ) '.defense.name = "MultichannelSemanticSegmentor"' \
          | $(JQ) '.defense.type = "Preprocessor"' \
          | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
-         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2Preprocessor"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl"' \
          | $(JQ) '.model.module = "oscar.classifiers.ucf101_mars"' \
@@ -129,9 +129,39 @@ $(SCENARIOS)/%_scsemanticseg.json: $(SCENARIOS)/%.json
          | $(JQ) '.defense.type = "Preprocessor"' \
          | $(JQ) '.defense.kwargs.nb_channels = 1' \
          | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
-         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2Preprocessor"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl"' \
+         | $(JQ) '.model.module = "oscar.classifiers.ucf101_mars"' \
+         | $(JQ) '.model.model_kwargs.input_channels = 1' \
+         | $(JQ) '.model.model_kwargs.preprocessing_mean = [127.5]' \
+         | $(JQ) '.model.model_kwargs.preprocessing_std = [1]' > $@
+
+$(SCENARIOS)/%_sckeypointfpnseg.json: $(SCENARIOS)/%.json
+> cat $< | $(JQ) '.defense.module = "oscar.defences.preprocessor.multichannel_semantic_segmentor"' \
+         | $(JQ) '.defense.name = "MultichannelSemanticSegmentor"' \
+         | $(JQ) '.defense.type = "Preprocessor"' \
+         | $(JQ) '.defense.kwargs.nb_channels = 1' \
+         | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "oscar://DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_FPN_3x/config.yaml"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "oscar://DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_FPN_3x/model_final.pth"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.resize = false' \
+         | $(JQ) '.model.module = "oscar.classifiers.ucf101_mars"' \
+         | $(JQ) '.model.model_kwargs.input_channels = 1' \
+         | $(JQ) '.model.model_kwargs.preprocessing_mean = [127.5]' \
+         | $(JQ) '.model.model_kwargs.preprocessing_std = [1]' > $@
+
+$(SCENARIOS)/%_sckeypointdc5seg.json: $(SCENARIOS)/%.json
+> cat $< | $(JQ) '.defense.module = "oscar.defences.preprocessor.multichannel_semantic_segmentor"' \
+         | $(JQ) '.defense.name = "MultichannelSemanticSegmentor"' \
+         | $(JQ) '.defense.type = "Preprocessor"' \
+         | $(JQ) '.defense.kwargs.nb_channels = 1' \
+         | $(JQ) '.defense.kwargs.detectron2.module = "oscar.defences.preprocessor.detectron2"' \
+         | $(JQ) '.defense.kwargs.detectron2.name = "Detectron2PreprocessorPyTorch"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "oscar://DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_DC5_3x/config.yaml"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "oscar://DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_DC5_3x/model_final.pth"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.resize = false' \
          | $(JQ) '.model.module = "oscar.classifiers.ucf101_mars"' \
          | $(JQ) '.model.model_kwargs.input_channels = 1' \
          | $(JQ) '.model.model_kwargs.preprocessing_mean = [127.5]' \
@@ -173,13 +203,30 @@ $(SCENARIOS)/%_maskedpgd_patchratio_0p1.json: $(SCENARIOS)/%.json
          | $(JQ) '.attack.kwargs.targeted = false' \
          | $(JQ) '.attack.kwargs.verbose = false' \
          | $(JQ) '.attack.generate_kwargs.patch_ratio = 0.1' \
-         | $(JQ) '.attack.generate_kwargs.xmin = 0' \
+         | $(JQ) '.attack.generate_kwargs.xmin = 40' \
          | $(JQ) '.attack.generate_kwargs.ymin = 0' \
          | $(JQ) '.attack.generate_kwargs.video_input = true'  > $@
 
+scenario_configs/oscar/%_staticpatch_patchratio_0p1.json: scenario_configs/oscar/%.json
+> cat $< | $(JQ) 'del(.attack)' \
+         | $(JQ) '.attack.knowledge = "white"' \
+         | $(JQ) '.attack.module = "oscar.attacks.static_patch"' \
+         | $(JQ) '.attack.name = "StaticPatch"'\
+         | $(JQ) '.attack.use_label = true' \
+         | $(JQ) '.attack.kwargs.batch_size = 1' \
+         | $(JQ) '.attack.kwargs.norm = "inf"' \
+         | $(JQ) '.attack.kwargs.eps_step = 4/255' \
+         | $(JQ) '.attack.kwargs.max_iter = 100' \
+         | $(JQ) '.attack.kwargs.num_random_init = 3' \
+         | $(JQ) '.attack.kwargs.targeted = false' \
+         | $(JQ) '.attack.kwargs.verbose = false' \
+         | $(JQ) '.attack.kwargs.patch_ratio = 0.1' \
+         | $(JQ) '.attack.kwargs.xmin = 40' \
+         | $(JQ) '.attack.kwargs.ymin = 0' > $@
+
 # Our multichannel semantic segmentation defense with Gaussian-DT2. Lower the threshold to decrease false negative rate.
 $(SCENARIOS)/%_mcsemanticseg_gaussian%std.json: $(SCENARIOS)/%_mcsemanticseg.json $(MODEL_ZOO)/detectron2/mask_rcnn_X_101_32x8d_FPN_3x_gaussian64truncated_8gpus/model_final.pth
-> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2Preprocessor"' \
+> cat $< | $(JQ) '.defense.kwargs.detectron2.name = "GaussianDetectron2PreprocessorPyTorch"' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_sigma = $*/255.' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.gaussian_clip_values = [0, 1]' \
          | $(JQ) '.defense.kwargs.detectron2.kwargs.score_thresh = 0.1' \
@@ -283,7 +330,7 @@ $(SCENARIOS)/ucf101_fulltune_r50_smoothed_residual_with_smoothed_residual.json: 
          | $(JQ) 'del(.defense2)' > $@
 
 # Generic scenario to evaluate using our science scenario
-$(SCENARIOS)/ucf101%_science.json: $(SCENARIOS)/ucf101_%.json
+$(SCENARIOS)/ucf101_%_science.json: $(SCENARIOS)/ucf101_%.json
 > cat $< | $(JQ) '.scenario.module = "oscar.scenarios.video_ucf101_scenario_science"' \
          | $(JQ) 'del(.attack)' \
          | $(JQ) '.attack.knowledge = "white"' \
@@ -297,47 +344,72 @@ $(SCENARIOS)/ucf101%_science.json: $(SCENARIOS)/ucf101_%.json
          | $(JQ) '.attack.kwargs.eps_step = [1/255, 2/255, 4/255, 8/255, 16/255, 32/255, 64/255, 128/255]' \
          | $(JQ) '.attack.kwargs.max_iter = [9, 9, 9, 7, 7, 3, 3, 1]' > $@
 
+# Static Patch attack in science scenario
+scenario_configs/oscar/ucf101%_science_staticpatch.json: scenario_configs/oscar/ucf101%_science.json
+> cat $< | $(JQ) '.attack.module = "oscar.attacks.static_patch"' \
+         | $(JQ) '.attack.name = "StaticPatch"' \
+         | $(JQ) '.attack.use_label = true' \
+         | $(JQ) '.attack.kwargs.eps = 255/255' \
+         | $(JQ) '.attack.kwargs.norm = "inf"' \
+         | $(JQ) '.attack.kwargs.eps_step = 4/255' \
+         | $(JQ) '.attack.kwargs.max_iter = 100' \
+         | $(JQ) '.attack.kwargs.patch_ratio = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]' \
+         | $(JQ) '.attack.kwargs.num_random_init = 3' \
+         | $(JQ) '.attack.kwargs.xmin = 40' \
+         | $(JQ) '.attack.kwargs.ymin = 0' > $@
+
 # Shuffle ucf101 clean dataset at oscar data pipeline at the inference stage. The input is expected to have shape (batch, frames, height, width, channels). If shuffle_axes is [0], shuffling will be done at batch dimension; if shuffle_axes is [1], shuffling will be done at frames dimension; if shuffle_axes is [0, 1], shuffling will be done at both batch and frames dimension.
 # This config file shuffles ucf101_shuffle dataset in oscar.data.datasets.
-$(SCENARIOS)/ucf101%_shuffle_video.json: $(SCENARIOS)/ucf101%.json
+$(SCENARIOS)/ucf101_%_shuffle_video.json: $(SCENARIOS)/ucf101_%.json
 > cat $< | $(JQ) '.dataset.module = "oscar.data.datasets"' \
-         | $(JQ) '.dataset.name = "ucf101clean_shuffle"' \
+         | $(JQ) '.dataset.name = "ucf101_clean_shuffle"' \
          | $(JQ) '.dataset.kwargs.shuffle_axes = [0, 1]'  > $@
 
 # This config file shuffles ucf101_adversarial_112x112 of oscar.data.adversarial_datasets.
-$(SCENARIOS)/ucf101%_science_shuffle_frames.json: $(SCENARIOS)/ucf101%_science.json
+$(SCENARIOS)/ucf101_%_science_shuffle_frames.json: $(SCENARIOS)/ucf101_%_science.json
 > cat $< | $(JQ) '.dataset.kwargs.shuffle_axes = [1]'  > $@
 
 # Generic scenario to shuffle various axes
-$(SCENARIOS)/ucf101%_shuffle.json: $(SCENARIOS)/ucf101%.json
+$(SCENARIOS)/ucf101_%_shuffle.json: $(SCENARIOS)/ucf101_%.json
 > cat $< | $(JQ) '.dataset.module = "oscar.data.datasets"' \
-         | $(JQ) '.dataset.name = "ucf101clean_shuffle"' \
+         | $(JQ) '.dataset.name = "ucf101_clean_shuffle"' \
          | $(JQ) '.dataset.shuffle = true' \
          | $(JQ) '.dataset.shuffle_axis = 1'  > $@
 
-$(SCENARIOS)/ucf101%_science_shuffle.json: $(SCENARIOS)/ucf101%_science.json
+$(SCENARIOS)/ucf101_%_science_shuffle.json: $(SCENARIOS)/ucf101_%_science.json
 > cat $< | $(JQ) '.dataset.kwargs.shuffle = true' \
          | $(JQ) '.dataset.kwargs.shuffle_axis = 1' > $@
 
 # ST-GCN classifier with DT2 keypoint detector classifier
-$(SCENARIOS)/ucf101clean_stgcn.json: $(SCENARIOS)/ucf101clean_baseline_pretrained.json $(MODEL_ZOO)/ST_GCN/stgcn_lightning_v15.pth
-> cat $< | $(JQ) '.defense.module = "oscar.defences.preprocessor.keypoints"' \
+$(SCENARIOS)/ucf101_clean_stgcn.json: $(SCENARIOS)/ucf101_clean_baseline_pretrained.json $(MODEL_ZOO)/ST_GCN/eval3_v24_06_21.pth
+> cat $< | $(JQ) 'del(.attack)' \
+         | $(JQ) '.attack.knowledge = "white"' \
+         | $(JQ) '.attack.kwargs.eps = 0.0157' \
+         | $(JQ) '.attack.kwargs.eps_step = 0.1' \
+         | $(JQ) '.attack.kwargs.minimal = false' \
+         | $(JQ) '.attack.kwargs.num_random_init = 0' \
+         | $(JQ) '.attack.kwargs.targeted = false' \
+         | $(JQ) '.attack.module = "art.attacks.evasion"' \
+         | $(JQ) '.attack.name = "FastGradientMethod"' \
+         | $(JQ) '.attack.use_label = false' \
+         | $(JQ) '.defense.module = "oscar.defences.preprocessor.keypoints"' \
          | $(JQ) '.defense.name = "VideoToKeypointsPreprocessor"' \
          | $(JQ) '.defense.type = "Preprocessor"' \
-         | $(JQ) '.defense.kwargs.config_path = "detectron2://COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"' \
-         | $(JQ) '.defense.kwargs.weights_path = "detectron2://COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x/137849621/model_final_a6e10b.pkl"' \
+         | $(JQ) '.defense.kwargs.config_path = "oscar://DT2/COCO-Keypoints/keypoint_rcnn_R_50_W4_FPN_3x.yaml"' \
+         | $(JQ) '.defense.kwargs.weights_path = "oscar://DT2/COCO-Keypoints/keypoint_rcnn_R_50_W4_FPN_3x/model_final.pth"' \
          | $(JQ) '.model.module = "oscar.classifiers.ucf101_stgcn"' \
-         | $(JQ) '.model.weights_file = "ST_GCN/stgcn_lightning_v15.pth"' \
+         | $(JQ) '.model.weights_file = "oscar://ST_GCN/eval3_v24_06_21.pth"' \
          | $(JQ) '.model.model_kwargs = {}' \
-         | $(JQ) '.model.fit_kwargs = {}' > $@
+         | $(JQ) '.model.fit_kwargs = {}' \
+         | $(JQ) '.sysconfig.use_gpu = true' > $@
 
-$(SCENARIOS)/ucf101clean_stgcn_fgsm04.json: $(SCENARIOS)/ucf101clean_stgcn.json
+$(SCENARIOS)/ucf101_clean_stgcn_fgsm04.json: $(SCENARIOS)/ucf101_clean_stgcn.json
 > cat $< | $(JQ) '.attack.kwargs.eps = 0.0157' > $@
 
-$(SCENARIOS)/ucf101clean_stgcn_fgsm08.json: $(SCENARIOS)/ucf101clean_stgcn.json
+$(SCENARIOS)/ucf101_clean_stgcn_fgsm08.json: $(SCENARIOS)/ucf101_clean_stgcn.json
 > cat $< | $(JQ) '.attack.kwargs.eps = 0.0314' > $@
 
-$(SCENARIOS)/ucf101clean_stgcn_fgsm16.json: $(SCENARIOS)/ucf101clean_stgcn.json
+$(SCENARIOS)/ucf101_clean_stgcn_fgsm16.json: $(SCENARIOS)/ucf101_clean_stgcn.json
 > cat $< | $(JQ) '.attack.kwargs.eps = 0.0627' > $@
 
 
@@ -387,8 +459,8 @@ $(UCF101_VARIANTS)/UCF101TrainTestSplits-RecognitionTask.zip: | $(UCF101_VARIANT
 $(UCF101_FRAMES_MASKS): | .venv $(UCF101_ANNOT) $(UCF101_FRAMES)
 > @echo "$(YELLOW)Couldn't find $@. Run the commands below, if you really want to generate this data.$(RESET)"
 > @echo "WARNING: $(RED)Do not run these commands on spr-gpu*, unless you are absolutely sure what you are doing!$(RESET)"
-> @echo $(POETRY) run python ./bin/ucf101_mask_bg.py $(UCF101_ANNOT) $(UCF101_FRAMES) $@ 0 3783 0
-> @echo $(POETRY) run python ./bin/ucf101_mask_bg.py $(UCF101_ANNOT) $(UCF101_FRAMES) $@ 0 9537 1
+> @echo $(POETRY) run python3 -m oscar.data.cache_detections --cache_dir $@ --frames_root $(UCF101_FRAMES) --annotation_dir $(UCF101_ANNOT) --train
+> @echo $(POETRY) run python3 -m oscar.data.cache_detections --cache_dir $@ --frames_root $(UCF101_FRAMES) --annotation_dir $(UCF101_ANNOT)
 
 $(MODEL_ZOO)/MARS_UCF101_16f.pth: | .venv $(MODEL_ZOO)
 > $(POETRY) run gdown "https://drive.google.com/uc?id=1TRTKuJF2lSSWHy3dX91KV4aiD0ni0hhI&export=download" -O $@
@@ -540,6 +612,9 @@ $(MODEL_ZOO)/MARS/RGBSegMC_Flow/fulltune_random_kinetics400: | $(MODEL_ZOO)/Flow
 $(MODEL_ZOO)/MARS/RGBSegSC_Flow/fulltune_random_kinetics400: | $(MODEL_ZOO)/Flow_Kinetics_16f.pth $(UCF101_FRAMES) $(UCF101_ANNOT)
 > $(TRAIN_RUN) $(MARS_TRAIN_OPT_DEFAULTS) --modality RGBSegSC_Flow $(ARGS)
 
+.PHONY: $(MODEL_ZOO)/MARS/RGBKeySC_Flow/fulltune_random_kinetics400
+$(MODEL_ZOO)/MARS/RGBKeySC_Flow/fulltune_random_kinetics400: | $(MODEL_ZOO)/Flow_Kinetics_16f.pth $(UCF101_FRAMES) $(UCF101_ANNOT)
+> $(TRAIN_RUN) $(MARS_TRAIN_OPT_DEFAULTS) --modality RGBKeySC_Flow --frame_mask_dir $(UCF101_VARIANTS)/ucf101_frames_predictions/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_DC5_3x $(ARGS)
 
 
 # + Gaussian augmentation # --gaussian_augmentation_std $*
@@ -557,8 +632,8 @@ $(MODEL_ZOO)/MARS/RGBSegSC_Flow/fulltune_random_kinetics400: | $(MODEL_ZOO)/Flow
 
 STGCN_TRAIN_RUN = $(POETRY) run python -m oscar.classifiers.ucf101_stgcn --gpus 1
 
-STGCN_TRAIN_DATA = $(PRECOMPUTED_DATA_DIR)/preprocessed.ucf101clean_stgcn.train.h5
-STGCN_TEST_DATA = $(PRECOMPUTED_DATA_DIR)/preprocessed.ucf101clean_stgcn.test.h5
+STGCN_TRAIN_DATA = $(PRECOMPUTED_DATA_DIR)/preprocessed.ucf101_clean_stgcn.train.h5
+STGCN_TEST_DATA = $(PRECOMPUTED_DATA_DIR)/preprocessed.ucf101_clean_stgcn.test.h5
 
 STGCN_DATA_ARGS = --precomputed_train_dataset $(STGCN_TRAIN_DATA) --precomputed_test_dataset $(STGCN_TEST_DATA)
 STGCN_TRAIN_OPT_DEFAULTS = $(STGCN_DATA_ARGS) --fulltune_model
@@ -574,10 +649,10 @@ $(STGCN_KINETICS_PRETRAINED_MODEL):
 $(MODEL_ZOO)/ST_GCN: $(STGCN_TRAIN_DATA) $(STGCN_TEST_DATA) $(STGCN_KINETICS_PRETRAINED_MODEL)
 > $(STGCN_TRAIN_RUN) $(STGCN_TRAIN_OPT_DEFAULTS) $(ARGS)
 
-BEST_STGCN_MODEL = $(MODEL_ZOO)/ST_GCN/stgcn_lightning_v15.pth
+BEST_STGCN_MODEL = $(MODEL_ZOO)/ST_GCN/eval3_v24_06_21.pth
 
-$(MODEL_ZOO)/ST_GCN/stgcn_lightning_v15.pth:
-> wget "https://www.dropbox.com/s/0ib255mi30ol37y/stgcn_lightning_v15.pth?dl=1" -O $@
+# $(MODEL_ZOO)/ST_GCN/stgcn_lightning_v15.pth:
+# > wget "https://www.dropbox.com/s/0ib255mi30ol37y/stgcn_lightning_v15.pth?dl=1" -O $@
 
 #################################### ST-GCN Training and Models ###################################
 ####################################            End             ###################################
@@ -589,122 +664,57 @@ $(MODEL_ZOO)/ST_GCN/stgcn_lightning_v15.pth:
 # XXX: Hack to support "=" in filenames below. Why, PyTorch-Lightning?!, Why?!
 equal := =
 
-submission/INTL_ucf101_ablation.json: $(SCENARIOS)/ucf101clean_baseline_pretrained_bgablation.json
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "google-research/big_transfer", "yusong-tan/MARS"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_fulltune_random_kinetics400_masked.pth"' > $@
-
-submission/INTL_fulltune_kinetics400_ucf101_masked.pth: $(MODEL_ZOO)/UCF101/fulltune_kinetics400_ucf101_masked.pth
+submission/INTL_ucf101_dt2_dc5_config.yaml: $(MODEL_ZOO)/DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_DC5_3x/config.yaml
 > cp $< $@
 
-submission/INTL_fulltune_random_kinetics400_masked.pth: $(MODEL_ZOO)/MARS/RGBMasked_FlowMasked/fulltune_random_kinetics400/version_0/model_epoch$(equal)00498.pth
+submission/INTL_ucf101_dt2_dc5_weights.pth: $(MODEL_ZOO)/DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_DC5_3x/model_final.pth
 > cp $< $@
 
-submission/INTL_ucf101_paletted_segmentation.json: $(SCENARIOS)/ucf101clean_baseline_pretrained_palettedsemanticseg.json
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "yusong-tan/MARS"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_fulltune_random_kinetics400_paletted_segmentation.pth"' > $@
-
-submission/INTL_fulltune_random_kinetics400_paletted_segmentation.pth: $(MODEL_ZOO)/MARS/RGBSeg_Flow/fulltune_random_kinetics400/version_0/model_epoch$(equal)00436.pth
+submission/INTL_ucf101_dc5_singlechannel_segmentation.pth: $(MODEL_ZOO)/MARS/RGBKeySC_Flow/fulltune_random_kinetics400/version_1/model_epoch$(equal)00527.pth
 > cp $< $@
 
-submission/INTL_ucf101_paletted_segmentation_gaussian64std.json: $(SCENARIOS)/ucf101clean_baseline_pretrained_palettedsemanticseg_gaussian64std.json submission/INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "yusong-tan/MARS"]' \
+submission/INTL_ucf101_dc5_singlechannel_segmentation.json: $(SCENARIOS)/ucf101_clean_baseline_pretrained_sckeypointdc5seg_staticpatch_patchratio_0p1.json submission/INTL_ucf101_dt2_dc5_config.yaml submission/INTL_ucf101_dt2_dc5_weights.pth submission/INTL_ucf101_dc5_singlechannel_segmentation.pth
+> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/OSCAR@gard-eval3", "yusong-tan/MARS"]' \
          | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_fulltune_random_kinetics400_paletted_segmentation.pth"' \
-         | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "armory://INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth"' > $@
+         | $(JQ) '.sysconfig.gpus = "0"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.config_path = "armory://INTL_ucf101_dt2_dc5_config.yaml"' \
+         | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "armory://INTL_ucf101_dt2_dc5_weights.pth"' \
+         | $(JQ) '.model.weights_file = "INTL_ucf101_dc5_singlechannel_segmentation.pth"' > $@
 
-submission/INTL_ucf101_multichannel_segmentation.json: $(SCENARIOS)/ucf101clean_baseline_pretrained_mcsemanticseg.json
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "yusong-tan/MARS"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_fulltune_random_kinetics400_multichannel_segmentation.pth"' > $@
-
-submission/INTL_fulltune_random_kinetics400_multichannel_segmentation.pth: $(MODEL_ZOO)/MARS/RGBSegMC_Flow/fulltune_random_kinetics400/version_2/model_epoch$(equal)00303.pth
+submission/INTL_ucf101_dt2_fpn_config.yaml: $(MODEL_ZOO)/DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_FPN_3x/config.yaml
 > cp $< $@
 
-submission/INTL_ucf101_multichannel_segmentation_gaussian64std.json: $(SCENARIOS)/ucf101clean_baseline_pretrained_mcsemanticseg_gaussian64std.json submission/INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "yusong-tan/MARS"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_fulltune_random_kinetics400_multichannel_segmentation.pth"' \
-         | $(JQ) '.defense.kwargs.detectron2.kwargs.weights_path = "armory://INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth"' > $@
-
-
-submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.json: $(SCENARIOS)/ucf101clean_baseline_randomized_smoothing_gaussian64std.json submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.pth
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2", "yusong-tan/MARS"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.model.weights_file = "INTL_ucf101_randomized_smoothing64_fulltune_ucf101.pth"' > $@
-
-submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.pth: $(MODEL_ZOO)/MARS/RGBGaussian64truncated/fulltune_ucf101/version_0/model_epoch$(equal)00049.ckpt
-> $(POETRY) run python ./bin/convert_lightning_ckpt_to_mars.py $< $@
-
-
-submission/INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth: $(MODEL_ZOO)/detectron2/mask_rcnn_X_101_32x8d_FPN_3x_gaussian64truncated_8gpus/model_final.pth
+submission/INTL_ucf101_dt2_fpn_weights.pth: $(MODEL_ZOO)/DT2/COCO-Keypoints/keypoint_mask_rcnn_R_50_W4_FPN_3x/model_final.pth
 > cp $< $@
-
-submission/INTL_ucf101_stgcn.json: $(SCENARIOS)/ucf101clean_stgcn.json
-> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/GARD@gard-phase1-eval2"]' \
-         | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.defense.kwargs.batch_frames_per_video = 8' \
-         | $(JQ) '.model.weights_file = "INTL_ucf101_stgcn.pth"' > $@
 
 submission/INTL_ucf101_stgcn.pth: $(BEST_STGCN_MODEL)
 > cp $< $@
 
+submission/INTL_ucf101_stgcn.json: $(SCENARIOS)/ucf101_clean_stgcn.json submission/INTL_ucf101_dt2_fpn_config.yaml submission/INTL_ucf101_dt2_fpn_weights.pth submission/INTL_ucf101_stgcn.pth
+> cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/OSCAR@gard-eval3"]' \
+         | $(JQ) '.sysconfig.gpus = "0"' \
+         | $(JQ) '.defense.kwargs.config_path = "armory://INTL_ucf101_dt2_fpn_config.yaml"' \
+         | $(JQ) '.defense.kwargs.weights_path = "armory://INTL_ucf101_dt2_fpn_weights.pth"' \
+         | $(JQ) '.model.weights_file = "INTL_ucf101_stgcn.pth"' > $@
 
 .PHONY: ucf101_submission
-ucf101_submission: submission/INTL_ucf101_paletted_segmentation.json \
-                   submission/INTL_fulltune_random_kinetics400_paletted_segmentation.pth \
-                   submission/INTL_ucf101_paletted_segmentation_gaussian64std.json \
-                   submission/INTL_ucf101_multichannel_segmentation.json \
-                   submission/INTL_ucf101_multichannel_segmentation_gaussian64std.json \
-                   submission/INTL_fulltune_random_kinetics400_multichannel_segmentation.pth \
-                   submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.json \
-                   submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.pth \
-                   submission/INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth \
-                   submission/INTL_ucf101_stgcn.json \
-                   submission/INTL_ucf101_stgcn.pth
+ucf101_submission: submission/INTL_ucf101_dc5_singlechannel_segmentation.json \
+                   submission/INTL_ucf101_stgcn.json
 > @echo "Created UCF101 submission!"
 
 .PHONY: run_ucf101_submission
 run_ucf101_submission: ucf101_submission | .venv
-> $(info If fails, you will probably need to run 'make docker_image')
-> cp submission/INTL_fulltune_random_kinetics400_paletted_segmentation.pth $(ARMORY_SAVED_MODEL_DIR)
-> cp submission/INTL_fulltune_random_kinetics400_multichannel_segmentation.pth $(ARMORY_SAVED_MODEL_DIR)
-> cp submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.pth $(ARMORY_SAVED_MODEL_DIR)
-> cp submission/INTL_detectron2_segm_mask_rcnn_X_101_32x8d_FPN_3x_gaussian64.pth $(ARMORY_SAVED_MODEL_DIR)
+> cp submission/INTL_ucf101_dt2_dc5_config.yaml $(ARMORY_SAVED_MODEL_DIR)
+> cp submission/INTL_ucf101_dt2_dc5_weights.pth $(ARMORY_SAVED_MODEL_DIR)
+> cp submission/INTL_ucf101_dc5_singlechannel_segmentation.pth $(ARMORY_SAVED_MODEL_DIR)
 > cp submission/INTL_ucf101_stgcn.pth $(ARMORY_SAVED_MODEL_DIR)
-> $(POETRY) run armory run submission/INTL_ucf101_ablation.json
-> $(POETRY) run armory run submission/INTL_ucf101_randomized_smoothing64_fulltune_ucf101.json
-> $(POETRY) run armory run submission/INTL_ucf101_stgcn.json
+> cp submission/INTL_ucf101_dt2_fpn_config.yaml $(ARMORY_SAVED_MODEL_DIR)
+> cp submission/INTL_ucf101_dt2_fpn_weights.pth $(ARMORY_SAVED_MODEL_DIR)
+> $(POETRY) run armory run submission/INTL_ucf101_dc5_singlechannel_segmentation.json $(ARGS)
+> $(POETRY) run armory run submission/INTL_ucf101_stgcn.json $(ARGS)
 
 ####################################### Eval Submission ######################################
 #######################################       End       ######################################
-
-
-####################################### Submission Testing ######################################
-#######################################        Begin       ######################################
-
-
-.PHONY: gt_eval2_ucf101_submission
-gt_eval2_ucf101_submission: submission/INTL_ucf101_stgcn.json \
-                            submission/INTL_ucf101_stgcn.pth
-> @echo "Created GT Eval2 UCF101 submission!"
-
-.PHONY: armory_prepare_gt_eval2_ucf101_submission
-armory_prepare_gt_eval2_ucf101_submission: docker_image gt_eval2_ucf101_submission | .venv
-> cp submission/INTL_ucf101_stgcn.pth $(ARMORY_SAVED_MODEL_DIR)
-
-.PHONY: check_gt_eval2_ucf101_submission
-check_gt_eval2_ucf101_submission: armory_prepare_gt_eval2_ucf101_submission
-> $(POETRY) run armory run --check submission/INTL_ucf101_stgcn.json $(ARGS)
-
-.PHONY: run_gt_eval2_ucf101_submission
-run_gt_eval2_ucf101_submission: armory_prepare_gt_eval2_ucf101_submission
-> $(POETRY) run armory run submission/INTL_ucf101_stgcn.json $(ARGS)
-
-
-####################################### Submission Testing ######################################
-#######################################         End        ######################################
 
 
 .PHONY: test_ucf101

@@ -53,7 +53,7 @@ class MARSDataModule(pl.LightningDataModule):
                             'RGBMasked_Flow', 'RGBMasked_FlowMasked',
                             'RGBSeg_Flow',
                             'RGBSegMC_Flow',
-                            'RGBSegSC_Flow']
+                            'RGBSegSC_Flow', 'RGBKeySC_Flow']
 
         self.modality = modality
         self.frames_root = frames_root
@@ -79,7 +79,7 @@ class MARSDataModule(pl.LightningDataModule):
 
         if 'RGBSegMC_' in self.modality:
             self.input_channels = len(self.palette) + 2 # COCO-things + XY
-        elif 'RGBSegSC_' in self.modality:
+        elif 'RGBSegSC_' in self.modality or 'RGBKeySC_' in self.modality:
             self.input_channels = 1 + 2 # Mask + XY
         else:
             self.input_channels = 3 + 2 # RGB + XY
@@ -87,7 +87,7 @@ class MARSDataModule(pl.LightningDataModule):
     @classmethod
     def add_argparse_args(cls, parser):
         group = parser.add_argument_group(cls.__name__)
-        group.add_argument('--modality', default='RGB', type=str, choices=['RGB', 'RGB_Flow', 'RGBMasked_Flow', 'RGBMasked_FlowMasked', 'RGBSeg_Flow', 'RGBSegMC_Flow', 'RGBSegSC_Flow'])
+        group.add_argument('--modality', default='RGB', type=str, choices=['RGB', 'RGB_Flow', 'RGBMasked_Flow', 'RGBMasked_FlowMasked', 'RGBSeg_Flow', 'RGBSegMC_Flow', 'RGBSegSC_Flow', 'RGBKeySC_Flow'])
         group.add_argument('--dataset', default='UCF101', type=str, choices=['UCF101'])
         group.add_argument('--only_RGB', default=False, action='store_true')
         group.add_argument('--batch_size', default=32, type=int)
@@ -149,7 +149,7 @@ class MARSDataModule(pl.LightningDataModule):
             train_channels_mean = 127.5
             test_channels_mean = 127.5
 
-        elif 'RGBSegSC_' in self.modality:
+        elif 'RGBSegSC_' in self.modality or 'RGBKeySC_' in self.modality:
             # TODO: Create another segmentor class that is faster and selects objects relevant to UCF101
             from oscar.defences.preprocessor.detectron2 import CachedDetectron2Preprocessor
             from oscar.defences.preprocessor.multichannel_semantic_segmentor import MultichannelSemanticSegmentorPyTorch
