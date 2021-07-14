@@ -131,7 +131,7 @@ class Detectron2PreprocessorPyTorch(torch.nn.Module):
         images = F.pad(images, padding_size, value=0)
 
         # Mostly cribbed from https://github.com/facebookresearch/detectron2/blob/d135f1d9bddf68d11804e09722f2d54c0672d96b/detectron2/modeling/meta_arch/rcnn.py#L125
-        image_list = ImageList(images, [(height, width) for _ in images])
+        image_list = ImageList(images.contiguous(), [(height, width) for _ in images])
         features = self.model.backbone(image_list.tensor)
         proposals, _ = self.model.proposal_generator(image_list, features, None)
         list_of_instances, _ = self.model.roi_heads(image_list, features, proposals, None)
