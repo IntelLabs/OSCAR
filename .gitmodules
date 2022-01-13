@@ -1,9 +1,6 @@
 [submodule "lib/armory"]
 	path = lib/armory
 	url = https://github.com/twosixlabs/armory.git
-[submodule "lib/mmskeleton/mmskeleton"]
-	path = lib/mmskeleton/mmskeleton
-	url = https://github.com/open-mmlab/mmskeleton.git
 [submodule "lib/MARS/MARS"]
 	path = lib/MARS/MARS
 	url = https://github.com/yusong-tan/MARS

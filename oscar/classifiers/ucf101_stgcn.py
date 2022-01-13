@@ -19,7 +19,11 @@ from art.estimators.classification.pytorch import PyTorchClassifier
 from pytorch_lightning import LightningModule
 from pytorch_lightning.metrics import Accuracy
 
-from mmskeleton.models.backbones.st_gcn_aaai18 import ST_GCN_18
+try:
+    from mmskeleton.models.backbones.st_gcn_aaai18 import ST_GCN_18
+except ImportError as e:
+    logging.warning("You need to install 'mmskeleton' and 'mmcv' separately.")
+    raise e
 
 from oscar.data.precomputed import PrecomputedLightningDataModule
 from oscar.utils.argparse import NegateAction
@@ -228,7 +232,7 @@ def get_art_model(
         loss=nn.CrossEntropyLoss(),
         input_shape=(3, 300, 18, 1),
         nb_classes=101,
-        preprocessing=None
+        preprocessing=None,
     )
 
     return wrapped_model

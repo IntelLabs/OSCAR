@@ -3,10 +3,7 @@ FROM twosixarmory/pytorch:0.13.3
 RUN apt-get update
 
 # Install system-level dependencies that cv2 depends upon
-RUN apt-get install -y libglib2.0-0 libsm6 libxrender-dev libxext6 libgl1-mesa-glx
-
-# Install system-level dependencies that mmskeleton depends upon
-RUN apt-get install -y --no-install-recommends cuda-compiler-11-2 cuda-command-line-tools-11-2
+RUN apt-get install -y libglib2.0-0 libsm6 libxrender-dev libxext6
 
 # Remove Pillow dependency because it is version 7.1.2 instead of 7.0.0
 #RUN /opt/conda/bin/pip uninstall -y Pillow
@@ -30,23 +27,6 @@ RUN /opt/conda/bin/pip install Cython==0.29.23
 RUN /opt/conda/bin/pip install kornia==0.4.1 \
                                pycocotools==2.0.2 \
                                pytorch_lightning==1.3.5
-
-# Install mmskeleton and its dependencies
-# Clone mmskeleton and add missing __init__.py files for `pip install` to discover the `mmskeleton.deprecated.datasets` package
-# The deprecated package is not used in mmskeleton code but still imported in `mmskeleton.datasets.skeleton.skeleton_process`
-# (see: https://github.com/open-mmlab/mmskeleton/blob/b4c076baa9e02e69b5876c49fa7c509866d902c7/mmskeleton/datasets/skeleton/skeleton_process.py#L3)
-RUN git clone https://github.com/open-mmlab/mmskeleton /tmp/mmskeleton/ \
-    && cd /tmp/mmskeleton \
-    && git reset --hard b4c076baa9e02e69b5876c49fa7c509866d902c7 \
-    && touch mmskeleton/deprecated/__init__.py \
-    && touch mmskeleton/deprecated/datasets/__init__.py
-RUN printf "\e[1;33m%s\e[0m\n" "WARNING: The 'mmskeleton' package requires GPU during setup, which is typycally not available in '(nvidia-)docker build'." \
-    && printf "\e[1;33m%s\e[0m\n" "Please make sure you have 'default-runtime' for the docker daemon set to 'nvidia'." \
-    && printf "\e[1;33m%s\e[0m\n" "This can be changed in your '/etc/docker/daemon.json' and restarting docker." \
-    && printf "\e[1;33m%s\e[0m\n" "For more details, please see these links:" \
-    && printf "\e[1;33m%s\e[0m\n" "1. https://github.com/NVIDIA/nvidia-docker/wiki/Advanced-topics#default-runtime" \
-    && printf "\e[1;33m%s\e[0m\n" "2. https://github.com/NVIDIA/nvidia-docker/issues/595#issuecomment-519714769" \
-    && /opt/conda/bin/pip install mmcv==1.2.6 /tmp/mmskeleton/ --no-build-isolation
 
 # Install detectron2 using pip
 RUN /opt/conda/bin/pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu110/torch1.7/detectron2-0.4%2Bcu110-cp37-cp37m-linux_x86_64.whl
