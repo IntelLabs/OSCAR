@@ -8,29 +8,36 @@ exclude = ["oscar/model_zoo/"]
 
 [tool.poetry.dependencies]
 python = "^3.7,<3.8"
-numpy = "1.19.2"
-torch = "1.7.0"
+numpy = "1.21.2"
+torch = "1.10.2"
 redner-gpu = "0.4.28"
 setGPU = "^0.0.7"
-opencv-python = "4.5.1.48"
-kornia = "^0.4.0"
-torchvision = "0.8.1"
+opencv-python = "4.5.5.62"
+kornia = "^0.6.5"
+torchvision = "0.11.3"
 Cython = "^0.29.16"
 pycocotools = "^2.0.0"
 wheel = "^0.34.2"
 gdown = "^3.11.0"
 seaborn = "^0.11.2"
-detectron2 = {url = "https://dl.fbaipublicfiles.com/detectron2/wheels/cu110/torch1.7/detectron2-0.4%2Bcu110-cp37-cp37m-linux_x86_64.whl"}
-tensorflow-datasets = "3.2.0"
-adversarial-robustness-toolbox = {git = "https://github.com/Trusted-AI/adversarial-robustness-toolbox.git", branch = "development_object_tracking_attack" }
-tensorflow = "2.5.1"
-armory-testbed = {path = "lib/armory"}
-boto3 = "1.17.20"
-apache-beam = "2.22.0"
-pytorch_lightning = "1.5.6"
-Pillow = "8.3.0"
+detectron2 = {url = "https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/detectron2-0.6%2Bcu113-cp37-cp37m-linux_x86_64.whl"}
+tensorflow-datasets = "4.5"
+adversarial-robustness-toolbox = "1.10.3"
+tensorflow = "2.8.1"
+boto3 = "1.20.54"
+# Armory's dataset-build requires apache-beam==2.22.0, which conflicts with pytorch_lightning==1.6.3 on the typing-extensions dependency.
+#   We chose to upgrade apache-beam to the latest and would resolve the dataset-build issule later.
+apache-beam = "2.38.0"
+pytorch_lightning = "1.6.3"
+Pillow = "9.0.1"
 ffmpeg-python = "0.2.0"
+hydra-core = "^1.2.0"
+hydra-colorlog = "^1.2.0"
 torchmetrics = "0.6.0"
+rich = "^11.2.0"
+armory-testbed = {path = "lib/armory"}
+loguru = "^0.6.0"
+tensorboardX = "2.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "6.2.2"

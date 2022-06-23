@@ -1,14 +1,14 @@
 # Change these as necessary
 DATASETS ?= /raid/datasets
-DOCKER ?= nvidia-docker
+DOCKER ?= docker
 ARMORY_CONFIG ?= $(HOME)/.armory/config.json
 
 # Don't change these
 MODEL_ZOO = oscar/model_zoo
 POETRY = $(HOME)/.local/bin/poetry
 ARMORY = $(shell which armory)
-DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.13.3
-DOCKER_IMAGE_TAG_ARMORY = twosixarmory/pytorch:0.14.2
+DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.15.3
+DOCKER_IMAGE_TAG_ARMORY = twosixarmory/pytorch:0.15.3
 JQ = jq --indent 4 -r
 YQ = faq -f yaml
 GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git
@@ -63,12 +63,12 @@ clean: clean_scenarios clean_precomputed
 
 .PHONY: clean_scenarios
 clean_scenarios:
-> rm -f $(ARMORY_SCENARIOS)/**/*.json
-> rm -f $(ARMORY_SCENARIOS)/*.json
+> find $(ARMORY_SCENARIOS) -name "*.json" -exec rm {} \;
 
 .PHONY: ubuntu_deps
 ubuntu_deps: ## Install Ubuntu dependencies
 > apt install python3.7 python3.7-dev python3.7-venv jq
+> wget -O $(HOME)/.local/bin/faq https://github.com/jzelinskie/faq/releases/download/0.0.7/faq-linux-amd64 && chmod +x $(HOME)/.local/bin/faq
 
 $(DATASETS):
 > $(error You need to specify your datasets directory using DATASETS=/path/to/datasets when calling make.)
@@ -78,7 +78,7 @@ $(DATASETS):
 #
 $(POETRY):
 > curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | POETRY_VERSION="1.0.5" python - --uninstall
-> curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py | python3.7 - --version 1.1.11 --force
+> curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py | python3.7 - --version 1.1.13 --force
 
 .PHONY: poetry
 poetry: $(POETRY) ## Launch poetry with ARGS
@@ -88,9 +88,9 @@ lib/%/.git:
 > git submodule update --init `dirname $@`
 
 .venv: $(POETRY) $(GIT_SUBMODULES) pyproject.toml
-> $(POETRY) run pip install pip==21.3.1
+> $(POETRY) run pip install pip==22.0.3
 > $(POETRY) install
-> $(POETRY) run pip install torch==1.7.0+cu110 torchvision==0.8.1+cu110 -f https://download.pytorch.org/whl/torch_stable.html
+> $(POETRY) run pip install torch==1.10.2+cu113 torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
 > touch $@
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
 > @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
@@ -113,9 +113,6 @@ docker_image: docker/Dockerfile ## Creates OSCAR docker image for use in armory
 #
 # Submission Targets
 #
-submission/:
-> mkdir -p $@
-
 .PHONY: submission
 submission: .venv \
             carla_detection_submission \
@@ -133,11 +130,9 @@ clean_submission:
 lib/armory/scenario_configs/%.json: lib/armory/.git
 > touch $@
 
-$(ARMORY_SCENARIOS)/:
-> mkdir -p $@
-
-$(ARMORY_SCENARIOS)/%.json: lib/armory/scenario_configs/%.json $(ARMORY_SCENARIOS)/
+$(ARMORY_SCENARIOS)/%.json: lib/armory/scenario_configs/%.json
 > @test -s $< || { echo "$(RED)Armory scenario $*.json does not exist!$(RESET)"; exit 1; }
+> mkdir -p $(@D)
 > cat $< | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG_ARMORY)"' > $@
 
 $(RESULTS)/%.json.armory_run: $(RESULTS)/%.json | .venv
@@ -165,9 +160,6 @@ $(SCENARIOS)/%.json.armory_docker_check: $(SCENARIOS)/%.json | .venv
 > $(JQ) ".sysconfig.output_dir = \"$*./armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
 
 
-
-$(SCENARIOS)/:
-> mkdir -p $@
 
 # Witness the magic of .SECONDEXPANSION! $$(*D) is the directory of the matched target exclude prefixes,
 # and $$(@F) is the filename of the matched target. We used the | (order-only) to separate
@@ -204,7 +196,7 @@ $(PRECOMPUTED_DATA_DIR)/preprocessed.%.test.scenario.json: $(SCENARIOS)/%.json |
 
 .DELETE_ON_ERROR: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5
 $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.scenario.json
-> $(POETRY) run python -m oscar.data.preprocess_armory_data $< $@
+> $(POETRY) run python3 -m oscar.data.preprocess_armory_data $< $@
 
 .PHONY: preprocessed.phony
 preprocessed.%.train preprocessed.%.test: preprocessed.phony # phony by proxy
@@ -217,7 +209,5 @@ clean_precomputed:
 
 
 # Manually order includes because some things depend upon other things
-include CARLA_DETECTION.mk
+include EVAL5_CARLA_DETECTION.mk
 include CARLA_TRACKING.mk
-include UCF101.mk
-include DAPRICOT.mk

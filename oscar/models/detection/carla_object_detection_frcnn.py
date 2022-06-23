@@ -21,6 +21,8 @@ from torchvision.models.detection.image_list import ImageList
 from torchvision.models.resnet import Bottleneck
 
 from armory.data.utils import maybe_download_weights_from_s3
+from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn import MultimodalNaive
+from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn_robust_fusion import MultimodalRobust
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,8 +60,17 @@ class FasterRCNN(torchvision.models.detection.faster_rcnn.FasterRCNN):
 
             rpn (nn.Module): module to replace default region proposal network (default: None)
             interpolation (str): interpolation to use in transform (default: bilinear)
+            input_slice (slice): which channels of input to select (default: all channels)
     """
-    def __init__(self, *args, rpn_score_thresh=0., rpn=None, interpolation="bilinear", **kwargs):
+    def __init__(
+        self,
+        *args,
+        rpn_score_thresh=0.,
+        rpn=None,
+        interpolation="bilinear",
+        input_slice=None,
+        **kwargs
+    ):
         with MonkeyPatch(torchvision.models.detection.faster_rcnn, "RegionProposalNetwork", RegionProposalNetwork):
             super().__init__(*args, **kwargs)
 
@@ -73,9 +84,15 @@ class FasterRCNN(torchvision.models.detection.faster_rcnn.FasterRCNN):
         if interpolation != "bilinear":
             logger.warn("Using bilinear interpolation instead of %s", interpolation)
 
+        if input_slice is None:
+            # Default to select first N channels
+            self.input_slice = slice(None, len(self.transform.image_mean))
+        else:
+            self.input_slice = slice(*input_slice)
+
     def forward(self, x, targets=None):
-        # Create new image_list by selecting first N channels
-        x = [img[:len(self.transform.image_mean)] for img in x]
+        # Create new image_list by selecting slice of input
+        x = [img[self.input_slice] for img in x]
 
         return super().forward(x, targets=targets)
 
@@ -196,9 +213,18 @@ class DepthDetectorRPN(FasterRCNN):
     """
         A detector that acts like a proposer. Uses the last N channels (i.e., depth) to make proposals.
     """
+    def __init__(self, *args, input_slice=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if self.input_slice is None:
+            # Select last N channels (i.e., depth)
+            self.input_slice = slice(-len(self.transform.image_mean), None)
+        else:
+            self.input_slice = slice(*input_slice)
+
     def forward(self, images, ignored_features, targets=None):
-        # Create new image_list by selecting depth channels (last N channels)
-        images = ImageList(images.tensors[:, -len(self.transform.image_mean):], images.image_sizes)
+        # Create new image_list by selecting slice of input
+        images = ImageList(images.tensors[:, self.input_slice], images.image_sizes)
 
         # Get features from depth-trained backbone
         features = self.backbone(images.tensors)
@@ -207,6 +233,12 @@ class DepthDetectorRPN(FasterRCNN):
         return proposals, losses
 
 def create_resnet_backbone(name, **kwargs):
+    if name == "multimodal_naive":
+        return MultimodalNaive()
+
+    if name == "multimodal_robust":
+        return MultimodalRobust()
+
     if name == "resnet50_fpn":
         return resnet_fpn_backbone("resnet50", pretrained=False, **kwargs)
 

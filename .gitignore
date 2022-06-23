@@ -1,6 +1,9 @@
+*.py[cod]
 .venv
-lib/mmskeleton/build/
+lib/
 oscar.egg-info/
 submission/
 scenario_configs/
 oscar/model_zoo/
+logs/
+results/

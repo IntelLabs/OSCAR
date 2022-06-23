@@ -1,4 +1,7 @@
-FROM twosixarmory/pytorch:0.13.3
+FROM twosixarmory/pytorch:0.15.3
+
+# Remove this when Armory updates their base images!
+RUN rm /etc/apt/sources.list.d/cuda.list
 
 RUN apt-get update
 
@@ -23,13 +26,13 @@ RUN apt-get install -y libglib2.0-0 libsm6 libxrender-dev libxext6
 # Armory submissions process does not support COPY in Dockerfile, so we
 # manually install the dependencies here. Hopefully they don't get out of sync!
 # Install Cython first because pycocotools will complain otherwise
-RUN /opt/conda/bin/pip install Cython==0.29.23
-RUN /opt/conda/bin/pip install kornia==0.4.1 \
-                               pycocotools==2.0.2 \
-                               pytorch_lightning==1.3.5
+RUN /opt/conda/bin/pip install Cython==0.29.28
+RUN /opt/conda/bin/pip install kornia==0.6.5 \
+                               pycocotools==2.0.4 \
+                               pytorch_lightning==1.6.3
 
 # Install detectron2 using pip
-RUN /opt/conda/bin/pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu110/torch1.7/detectron2-0.4%2Bcu110-cp37-cp37m-linux_x86_64.whl
+RUN /opt/conda/bin/pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/detectron2-0.6%2Bcu113-cp38-cp38-linux_x86_64.whl
 
 # Set cache directory for Detectron2 models
 ENV FVCORE_CACHE="/tmp"

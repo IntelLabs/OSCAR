@@ -238,7 +238,7 @@ $(DT2_MODEL_ZOO)/%/CARLA-IntelTwoWheeledAsPedestrian/metrics.json: $(DT2_MODEL_Z
 
 
 $(SCENARIOS)/carla_obj_det_dpatch_%.json: $(ARMORY_SCENARIOS)/carla_obj_det_dpatch_%.json | $(SCENARIOS)/
-> cat $< | $(JQ) '.scenario.export_samples = 200' \
+> cat $< | $(JQ) '.scenario.export_samples = 30' \
          | $(JQ) '.dataset.name = "carla_obj_det_test"' \
          | $(JQ) '.dataset.eval_split = "test"' > $@
 
@@ -257,9 +257,27 @@ $(SCENARIOS)/carla_obj_det_dpatch_pfn.json: $(SCENARIOS)/carla_obj_det_dpatch_fp
          | $(JQ) '.model.weights_file = "carla_rgb_pfn_weights.pt"' > $@
 
 $(SCENARIOS)/carla_obj_det_multimodal_dpatch_%.json: $(ARMORY_SCENARIOS)/carla_obj_det_multimodal_dpatch_%.json | $(SCENARIOS)/
-> cat $< | $(JQ) '.scenario.export_samples = 200' \
+> cat $< | $(JQ) '.scenario.export_samples = 30' \
          | $(JQ) '.dataset.name = "carla_obj_det_test"' \
          | $(JQ) '.dataset.eval_split = "test"' > $@
+
+$(SCENARIOS)/carla_obj_det_multimodal_dpatch_naive_undefended.json: $(SCENARIOS)/carla_obj_det_multimodal_dpatch_undefended.json
+> cat $< | $(JQ) '.model.module = "oscar.models.detection.carla_object_detection_frcnn"' \
+         | $(JQ) '.model.name = "get_art_model"' \
+         | $(JQ) '.model.model_kwargs.backbone.name = "multimodal_naive"' \
+         | $(JQ) '.model.model_kwargs.image_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406]' \
+         | $(JQ) '.model.model_kwargs.image_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225]' \
+         | $(JQ) '.model.model_kwargs.weights_file = .model.weights_file' \
+         | $(JQ) '.model.weights_file = null' > $@
+
+$(SCENARIOS)/carla_obj_det_multimodal_dpatch_naive_defended.json: $(SCENARIOS)/carla_obj_det_multimodal_dpatch_defended.json
+> cat $< | $(JQ) '.model.module = "oscar.models.detection.carla_object_detection_frcnn"' \
+         | $(JQ) '.model.name = "get_art_model"' \
+         | $(JQ) '.model.model_kwargs.backbone.name = "multimodal_robust"' \
+         | $(JQ) '.model.model_kwargs.image_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406]' \
+         | $(JQ) '.model.model_kwargs.image_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225]' \
+         | $(JQ) '.model.model_kwargs.weights_file = .model.weights_file' \
+         | $(JQ) '.model.weights_file = null' > $@
 
 $(SCENARIOS)/carla_obj_det_multimodal_dpatch_fpn.json: $(SCENARIOS)/carla_obj_det_multimodal_dpatch_undefended.json
 > cat $< | $(JQ) '.model.module = "oscar.models.detection.carla_object_detection_frcnn"' \
