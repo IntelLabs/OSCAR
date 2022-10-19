@@ -91,6 +91,7 @@ lib/%/.git:
 > $(POETRY) run pip install pip==22.0.3
 > $(POETRY) install
 > $(POETRY) run pip install torch==1.10.2+cu113 torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+> $(POETRY) run pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/detectron2-0.6%2Bcu113-cp37-cp37m-linux_x86_64.whl
 > touch $@
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
 > @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
