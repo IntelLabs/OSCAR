@@ -4,18 +4,20 @@ DOCKER ?= docker
 ARMORY_CONFIG ?= $(HOME)/.armory/config.json
 
 # Don't change these
+PYTHON = python3.9
 MODEL_ZOO = oscar/model_zoo
 POETRY = $(HOME)/.local/bin/poetry
 ARMORY = $(shell which armory)
-DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.15.3
-DOCKER_IMAGE_TAG_ARMORY = twosixarmory/pytorch:0.15.3
+DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.16.2
+DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.16.2
 JQ = jq --indent 4 -r
 YQ = faq -f yaml
-GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git
+GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git lib/big_transfer/big_transfer/.git lib/detectron2/.git
 MAKEFILE_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ARMORY_SCENARIOS = scenario_configs
 SCENARIOS = $(ARMORY_SCENARIOS)/oscar
 RESULTS = results
+MART = $(POETRY) run $(PYTHON) -m mart $(ARGS)
 
 BLACK := $(shell tput -Txterm setaf 0)
 RED := $(shell tput -Txterm setaf 1)
@@ -67,7 +69,7 @@ clean_scenarios:
 
 .PHONY: ubuntu_deps
 ubuntu_deps: ## Install Ubuntu dependencies
-> apt install python3.7 python3.7-dev python3.7-venv jq
+> apt install $(PYTHON) $(PYTHON)-dev $(PYTHON)-venv jq
 > wget -O $(HOME)/.local/bin/faq https://github.com/jzelinskie/faq/releases/download/0.0.7/faq-linux-amd64 && chmod +x $(HOME)/.local/bin/faq
 
 $(DATASETS):
@@ -77,8 +79,7 @@ $(DATASETS):
 # Python Targets
 #
 $(POETRY):
-> curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | POETRY_VERSION="1.0.5" python - --uninstall
-> curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py | python3.7 - --version 1.1.13 --force
+> curl -sSL https://install.python-poetry.org | $(PYTHON) - --version 1.3.2 --force
 
 .PHONY: poetry
 poetry: $(POETRY) ## Launch poetry with ARGS
@@ -88,10 +89,11 @@ lib/%/.git:
 > git submodule update --init `dirname $@`
 
 .venv: $(POETRY) $(GIT_SUBMODULES) pyproject.toml
-> $(POETRY) run pip install pip==22.0.3
-> $(POETRY) install
-> $(POETRY) run pip install torch==1.10.2+cu113 torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
-> $(POETRY) run pip install https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/detectron2-0.6%2Bcu113-cp37-cp37m-linux_x86_64.whl
+> $(POETRY) run pip install pip==22.3.1
+> PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring $(POETRY) install
+> $(POETRY) run pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+> $(POETRY) run pip install git+https://github.com/ifzhang/ByteTrack.git thop lap Cython
+> $(POETRY) run pip install cython-bbox
 > touch $@
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
 > @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
@@ -197,7 +199,7 @@ $(PRECOMPUTED_DATA_DIR)/preprocessed.%.test.scenario.json: $(SCENARIOS)/%.json |
 
 .DELETE_ON_ERROR: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5
 $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.scenario.json
-> $(POETRY) run python3 -m oscar.data.preprocess_armory_data $< $@
+> $(POETRY) run $(PYTHON) -m oscar.data.preprocess_armory_data $< $@
 
 .PHONY: preprocessed.phony
 preprocessed.%.train preprocessed.%.test: preprocessed.phony # phony by proxy

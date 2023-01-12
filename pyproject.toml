@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "oscar"
-version = "0.1.0"
+version = "3.0.0"
 description = ""
 authors = ["Cory Cornelius <cory.cornelius@intel.com>"]
 license = "BSD-3-Clause"
@@ -8,38 +8,13 @@ exclude = ["oscar/model_zoo/"]
 
 [tool.poetry.dependencies]
 python = "^3.9,<3.10"
-numpy = "1.23.3"
-torch = "1.12.1"
-redner-gpu = "0.4.28"
-setGPU = "^0.0.7"
-opencv-python = "4.6.0.66"
+armory-testbed = {version = "0.16.2", extras = ["engine", "datasets", "math", "tensorflow", "pytorch"]}
+mart = {git = "https://github.com/IntelLabs/MART.git", rev = "v0.2.1"}
 kornia = "^0.6.5"
-torchvision = "0.13.1"
-Cython = "^0.29.16"
-pycocotools = "^2.0.0"
-wheel = "^0.34.2"
-gdown = "^3.11.0"
-seaborn = "^0.11.2"
-tensorflow-datasets = "4.6.0"
-adversarial-robustness-toolbox = "1.12.2"
-tensorflow = "2.10.1"
-boto3 = "1.24.87"
-pytorch_lightning = "1.6.3"
-Pillow = "9.2.0"
-ffmpeg-python = "0.2.0"
-hydra-core = "^1.2.0"
-hydra-colorlog = "^1.2.0"
-torchmetrics = "0.6.0"
-rich = "^11.2.0"
-armory-testbed = {path = "lib/armory"}
-loguru = "^0.6.0"
-tensorboardX = "2.5.1"
+numpy = "1.23.5"
 
 [tool.poetry.dev-dependencies]
-pytest = "^7.2.0"
-jupyterlab = "3.4.8"
-bandit = "^1.6.2"
-yapf = "^0.30.0"
+gdown = "^3.11.0"
 
 [build-system]
 requires = ["poetry>=0.12"]
