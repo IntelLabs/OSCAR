@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2020 Georgia Institute of Technology. All rights reserved.
-# Copyright (C) 2021 Intel Corporation
+# Copyright (C) 2023 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -69,14 +69,21 @@ class TwoDeeArgmax(nn.Module):
         return x_argmax.clamp(0, W - 1), y_argmax.clamp(0, H - 1)
 
 
+def quantize(inputs, scale, zero_point=0., clip_min=0., clip_max=1.):
+    return Quantize.apply(inputs, scale, zero_point, clip_min, clip_max)
+
 class Quantize(torch.autograd.Function):
+    """
+    One could use torch.fake_quantize_per_tensor_affine, however, if your inputs are outside
+    of quant_min and quant_max, no gradient will flow through those values. We fix that here.
+    """
     @staticmethod
-    def forward(ctx, inputs, scale):
+    def forward(ctx, inputs, scale, zero_point, clip_min, clip_max):
         if len(inputs) == 0:
             return inputs
 
-        return (scale * inputs).round().clip(0, scale) / scale
+        return (((scale * inputs).round() + zero_point) / scale).clip(clip_min, clip_max)
 
     @staticmethod
     def backward(ctx, grad_outputs):
-        return grad_outputs, None
+        return grad_outputs, None, None, None, None

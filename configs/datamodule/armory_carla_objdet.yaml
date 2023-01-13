@@ -1,0 +1,17 @@
+defaults:
+  - coco
+
+train_dataset:
+  root: ${paths.data_dir}/carla_obj_det/2.0.0/train
+  modalities: ["rgb"]
+  annFile: ${paths.data_dir}/carla_obj_det/2.0.0/train/kwcoco_annotations_crowdadded.json
+
+val_dataset:
+  root: ${paths.data_dir}/carla_obj_det/2.0.0/val
+  modalities: ["rgb"]
+  annFile: ${paths.data_dir}/carla_obj_det/2.0.0/val/kwcoco_annotations_notcrowd.json
+
+test_dataset:
+  root: ${paths.data_dir}/carla_obj_det/2.0.0/dev/_out
+  modalities: ["sensor.camera.rgb.1"]
+  annFile: ${paths.data_dir}/carla_obj_det/2.0.0/dev/_out/kwcoco_annotations_without_patch_and_sans_tiny_objects_fixed_fname_notcrowd_infoDict.json

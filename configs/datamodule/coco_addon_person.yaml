@@ -1,0 +1,6 @@
+
+train_dataset:
+  annFile: ${paths.data_dir}/coco/annotations/person_keypoints_train2017.json
+
+val_dataset:
+  annFile: ${paths.data_dir}/coco/annotations/person_keypoints_val2017.json

@@ -1,0 +1,33 @@
+# @package _global_
+
+defaults:
+  - COCO_FasterRCNN
+  - override /model: semantic_faster_rcnn
+  - override /datamodule: [armory_carla_over_objdet, armory_addon_perturbable_mask_for_carla_over_objdet]
+
+task_name: "ArmoryCarlaOverObjDetAll_FasterRCNN"
+
+model:
+  modules:
+    preprocessor:
+      min_size: 960
+      max_size: 1280
+
+    backbone:
+      rpn:
+        channel_slice: [3, 4]
+        backbone:
+          in_channels: 1
+        trainable_layers: 5
+
+      box:
+        channel_slice: [0, 3]
+        trainable_layers: 5
+
+    box_head:
+      box_predictor:
+        num_classes: 3
+
+trainer:
+  # 3,600 training images, batch_size=2, 6 epochs
+  max_steps: 10800 # 3600/2*6

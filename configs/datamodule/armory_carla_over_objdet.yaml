@@ -1,0 +1,22 @@
+defaults:
+  - coco
+
+train_dataset:
+  root: ${paths.data_dir}/carla_over_obj_det/train
+  modalities: ["rgb"]
+  # Use all annotations for train
+  annFile: ${paths.data_dir}/carla_over_obj_det/train/kwcoco_annotations_all_iscrowd0.json
+
+val_dataset:
+  root: ${paths.data_dir}/carla_over_obj_det/val
+  modalities: ["rgb"]
+  # Use all annotations for validation
+  annFile: ${paths.data_dir}/carla_over_obj_det/val/kwcoco_annotations_all_iscrowd0.json
+
+test_dataset:
+  root: ${paths.data_dir}/carla_over_obj_det/dev
+  modalities: ["rgb"]
+  # Use all annotations for test
+  annFile: ${paths.data_dir}/carla_over_obj_det/dev/kwcoco_annotations_all_iscrowd0.json
+
+num_workers: 4

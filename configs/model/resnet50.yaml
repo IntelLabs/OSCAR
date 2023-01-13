@@ -1,0 +1,21 @@
+_target_: oscar.models.resnet.ResNet
+in_channels: 3
+block:
+  _target_: hydra.utils.get_method
+  path: torchvision.models.resnet.Bottleneck
+layers: [3, 4, 6, 3]
+num_classes: 1000
+zero_init_residual: False
+groups: 1
+width_per_group: 64
+replace_stride_with_dilation: null
+norm_layer:
+  _target_: hydra.utils.get_method
+  path: torchvision.ops.misc.FrozenBatchNorm2d
+# FIXME: There has got to be a better way to specify torchvision.models.resnet.ResNet50_Weights.IMAGENET1K_V1
+weights:
+  _target_: builtins.getattr
+  _args_:
+    -  _target_: hydra.utils.get_method
+       path: torchvision.models.resnet.ResNet50_Weights
+    - "IMAGENET1K_V1"

@@ -1,0 +1,27 @@
+defaults:
+  - /model/detection@preprocessor: preprocessor
+  - /model/detection@rpn: rpn
+  - /model/detection@rpn_predictor: rpn_predictor
+  - /model/detection@box_head: box_head
+  - /model/detection@box_predictor: box_predictor
+  - /model/detection@preds: preds
+  - /model/detection@proposal_sampler: proposal_sampler
+  - /model/detection@rpn_loss: rpn_loss
+  - /model/detection@box_loss: box_loss
+
+# Modules
+preprocessor: ???
+backbone: ???
+rpn: ???
+
+rpn_predictor: ???
+box_head: ???
+box_predictor: ???
+preds: ???
+
+proposal_sampler: ???
+rpn_loss: ???
+box_loss: ???
+
+output:
+  _target_: mart.nn.ReturnKwargs

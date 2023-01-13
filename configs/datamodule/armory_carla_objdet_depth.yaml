@@ -1,0 +1,11 @@
+defaults:
+  - armory_carla_objdet
+
+train_dataset:
+  modalities: ["depth"]
+
+val_dataset:
+  modalities: ["depth"]
+
+test_dataset:
+  modalities: ["sensor.camera.depth.2"]

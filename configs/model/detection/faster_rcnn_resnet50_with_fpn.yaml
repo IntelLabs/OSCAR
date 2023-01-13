@@ -1,0 +1,3 @@
+defaults:
+  - faster_rcnn
+  - /model/detection@backbone: resnet50_with_fpn

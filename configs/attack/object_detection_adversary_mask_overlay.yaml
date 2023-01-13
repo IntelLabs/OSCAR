@@ -1,0 +1,3 @@
+defaults:
+  - object_detection_adversary_additive
+  - override threat_model: batch_overlay

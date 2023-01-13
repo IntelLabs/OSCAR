@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - ArmoryObjDet_FasterRCNN
+
+  # fgsm_eps1.75 in training, pgd10_eps2_step1 for validation and test.
+  - /attack@model.modules.input_adv_training: [object_detection_adversary_additive, fgsm]
+  - /attack@model.modules.input_adv_validation: [object_detection_adversary_additive, pgd]
+  - /attack@model.modules.input_adv_test: [object_detection_adversary_additive, pgd]
+  # Visualize x_adv in test.
+  - /attack/callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
+
+  # Override the gain function.
+  - override /attack/gain@model.modules.input_adv_training.gain: rcnn_class_background
+  - override /attack/gain@model.modules.input_adv_validation.gain: rcnn_class_background
+  - override /attack/gain@model.modules.input_adv_test.gain: rcnn_class_background
+
+  # Override  the objective function.
+  - override /attack/objective@model.modules.input_adv_training.objective: object_detection_missed
+  - override /attack/objective@model.modules.input_adv_validation.objective: object_detection_missed
+  - override /attack/objective@model.modules.input_adv_test.objective: object_detection_missed
+
+task_name: "ArmoryObjDet_FasterRCNN_AdvMissed_PertGlobalAdditive"

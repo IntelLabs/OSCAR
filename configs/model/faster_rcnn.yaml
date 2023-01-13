@@ -1,0 +1,113 @@
+defaults:
+  - torchvision_faster_rcnn
+  # Get rid of bad configuration in MART
+  - modules.losses_and_detections: null
+  - /model/detection@modules: faster_rcnn_resnet50_with_fpn
+
+training_sequence:
+  - input_adv_training:
+      _call_with_args_: ["input", "target"]
+      model: model
+      step: step
+  - preprocessor: ["input_adv_training", "target"]
+  - backbone: ["preprocessor.image_list.tensors"]
+  - rpn: ["preprocessor.image_list", "backbone"]
+  - rpn_predictor: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.image_list.image_sizes"]
+
+  # Prediction: box.
+  - box_head: ["backbone", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+  - box_predictor: ["box_head.class_logits", "box_head.box_regression", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+
+  # Reverse transformation of predictions.
+  - preds: ["box_predictor", "preprocessor.image_list.image_sizes", "preprocessor.original_image_sizes"]
+
+  # Loss: rpn.
+  - rpn_loss: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.targets"]
+
+  # Loss: box.
+  - proposal_sampler: ["rpn_predictor.boxes", "preprocessor.targets"]
+  - box_head:
+      _name_: box_head_augmented_proposal
+      _call_with_args_: ["backbone", "proposal_sampler.proposals", "preprocessor.image_list.image_sizes"]
+  - box_loss: ["box_head_augmented_proposal.class_logits", "box_head_augmented_proposal.box_regression", "proposal_sampler.labels", "proposal_sampler.regression_targets"]
+
+  - loss: ["rpn_loss.loss_objectness", "rpn_loss.loss_rpn_box_reg", "box_loss.loss_classifier", "box_loss.loss_box_reg"]
+
+  - output:
+      preds: "preds"
+      target: "target"
+      rpn_loss.loss_objectness: "rpn_loss.loss_objectness"
+      rpn_loss.loss_rpn_box_reg: "rpn_loss.loss_rpn_box_reg"
+      box_loss.loss_classifier: "box_loss.loss_classifier"
+      box_loss.loss_box_reg: "box_loss.loss_box_reg"
+      loss: "loss"
+
+validation_sequence:
+  - input_adv_validation:
+      _call_with_args_: ["input", "target"]
+      model: model
+      step: step
+  - preprocessor: ["input_adv_validation", "target"]
+  - backbone: ["preprocessor.image_list.tensors"]
+  - rpn: ["preprocessor.image_list", "backbone"]
+  - rpn_predictor: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.image_list.image_sizes"]
+
+  # Prediction: box.
+  - box_head: ["backbone", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+  - box_predictor: ["box_head.class_logits", "box_head.box_regression", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+
+  # Reverse transformation of predictions.
+  - preds: ["box_predictor", "preprocessor.image_list.image_sizes", "preprocessor.original_image_sizes"]
+
+  # Loss: rpn.
+  - rpn_loss: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.targets"]
+
+  # Loss: box.
+  - proposal_sampler: ["rpn_predictor.boxes", "preprocessor.targets"]
+  - box_head:
+      _name_: box_head_augmented_proposal
+      _call_with_args_: ["backbone", "proposal_sampler.proposals", "preprocessor.image_list.image_sizes"]
+  - box_loss: ["box_head_augmented_proposal.class_logits", "box_head_augmented_proposal.box_regression", "proposal_sampler.labels", "proposal_sampler.regression_targets"]
+
+  - output:
+      preds: "preds"
+      target: "target"
+      rpn_loss.loss_objectness: "rpn_loss.loss_objectness"
+      rpn_loss.loss_rpn_box_reg: "rpn_loss.loss_rpn_box_reg"
+      box_loss.loss_classifier: "box_loss.loss_classifier"
+      box_loss.loss_box_reg: "box_loss.loss_box_reg"
+
+test_sequence:
+  - input_adv_test:
+      _call_with_args_: ["input", "target"]
+      model: model
+      step: step
+  - preprocessor: ["input_adv_test", "target"]
+  - backbone: ["preprocessor.image_list.tensors"]
+  - rpn: ["preprocessor.image_list", "backbone"]
+  - rpn_predictor: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.image_list.image_sizes"]
+
+  # Prediction: box.
+  - box_head: ["backbone", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+  - box_predictor: ["box_head.class_logits", "box_head.box_regression", "rpn_predictor.boxes", "preprocessor.image_list.image_sizes"]
+
+  # Reverse transformation of predictions.
+  - preds: ["box_predictor", "preprocessor.image_list.image_sizes", "preprocessor.original_image_sizes"]
+
+  # Loss: rpn.
+  - rpn_loss: ["rpn.objectness", "rpn.pred_bbox_deltas", "rpn.anchors", "preprocessor.targets"]
+
+  # Loss: box.
+  - proposal_sampler: ["rpn_predictor.boxes", "preprocessor.targets"]
+  - box_head:
+      _name_: box_head_augmented_proposal
+      _call_with_args_: ["backbone", "proposal_sampler.proposals", "preprocessor.image_list.image_sizes"]
+  - box_loss: ["box_head_augmented_proposal.class_logits", "box_head_augmented_proposal.box_regression", "proposal_sampler.labels", "proposal_sampler.regression_targets"]
+
+  - output:
+      preds: "preds"
+      target: "target"
+      rpn_loss.loss_objectness: "rpn_loss.loss_objectness"
+      rpn_loss.loss_rpn_box_reg: "rpn_loss.loss_rpn_box_reg"
+      box_loss.loss_classifier: "box_loss.loss_classifier"
+      box_loss.loss_box_reg: "box_loss.loss_box_reg"

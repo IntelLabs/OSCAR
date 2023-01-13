@@ -115,7 +115,7 @@ $(SCENARIOS)/carla-goturn-dynamic_background_subtraction.json: $(SCENARIOS)/carl
          | $(JQ) '.defense.kwargs.orb_gaussian_ksize = [5,5]' \
          | $(JQ) '.defense.kwargs.subtraction_gaussian_ksize = [5,5]' \
          | $(JQ) '.defense.kwargs.median_ksize = [9,9]' \
-         | $(JQ) '.defense.kwargs.bg_sub_thre = 35/255' > $@
+         | $(JQ) '.defense.kwargs.bg_sub_thre = 25/255' > $@
 
 #########################################################################
 # Eval 5 carla object tracking - Generate preprocessed frames
@@ -159,7 +159,7 @@ submission/INTL_carla_video_tracking_goturn_advtextures_dynamic_bg_sub.json: \
     $(ARMORY_SCENARIOS)/eval5/carla_video_tracking/carla_video_tracking_goturn_advtextures_undefended.json | submission/
 > cat $< | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/OSCAR@gard-eval5", "amoudgl/pygoturn"]' \
          | $(JQ) '.sysconfig.use_gpu = true' \
-         | $(JQ) '.sysconfig.docker_image = "intellabs/oscar:0.15.3"' \
+         | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG_OSCAR)"' \
          | $(JQ) '.defense = {}' \
          | $(JQ) '.defense.module = "oscar.defences.preprocessor.dynamic_background_subtraction"' \
          | $(JQ) '.defense.name = "DynamicBackgroundSubtraction"' \
@@ -171,4 +171,51 @@ submission/INTL_carla_video_tracking_goturn_advtextures_dynamic_bg_sub.json: \
          | $(JQ) '.defense.kwargs.orb_gaussian_ksize = [5,5]' \
          | $(JQ) '.defense.kwargs.subtraction_gaussian_ksize = [5,5]' \
          | $(JQ) '.defense.kwargs.median_ksize = [9,9]' \
-         | $(JQ) '.defense.kwargs.bg_sub_thre = 35/255' > $@
+         | $(JQ) '.defense.kwargs.bg_sub_thre = 25/255' > $@
+
+#########################################################################
+# Eval 6 carla object tracking
+#########################################################################
+# Undfended
+$(SCENARIOS)/carla_mot_adversarialpatch_undefended.json: $(ARMORY_SCENARIOS)/eval6/carla_mot/carla_mot_adversarialpatch_undefended.json | $(SCENARIOS)/
+> cat $< | $(JQ) '.attack.kwargs.max_iter = 5' \
+         | $(JQ) '.attack.kwargs.batch_frame_size = 3' \
+         | $(JQ) '.model.model_kwargs.min_size = 960 ' \
+         | $(JQ) '.model.model_kwargs.max_size = 1280 ' \
+         | $(JQ) '.sysconfig.use_gpu = true' \
+	     | $(JQ) '.sysconfig.num_eval_batches = 20' \
+         | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG_OSCAR)"' > $@
+
+# Defended - Bgsub+SS or Bgsub alone
+$(SCENARIOS)/carla_mot_adversarialpatch_ss_bgsub.json: $(SCENARIOS)/carla_mot_adversarialpatch_undefended.json | $(SCENARIOS)/
+> cat $< | $(JQ) '.defense = {}' \
+         | $(JQ) '.defense.type = "Preprocessor"' \
+     	 | $(JQ) '.defense.kwargs = {}' \
+         | $(JQ) '.defense.module = "oscar.defences.preprocessor.dynamic_background_subtraction"' \
+         | $(JQ) '.defense.name = "DynamicBackgroundSubtraction"' \
+         | $(JQ) '.defense.kwargs.orb_good_match_percent = 0.15' \
+         | $(JQ) '.defense.kwargs.orb_levels = 8' \
+         | $(JQ) '.defense.kwargs.orb_scale_factor = 1.2' \
+         | $(JQ) '.defense.kwargs.bg_sub_thre = 25/255' \
+	     | $(JQ) '.defense.kwargs.postfilter_ss = "false"' \
+	     | $(JQ) '.defense.kwargs.prefilter_ss = "false"' \
+         | $(JQ) '.defense.kwargs.edge_filter_size = 5' \
+	     | $(JQ) '.defense.kwargs.gaussian_filter_size = 11' \
+         | $(JQ) '.defense.kwargs.edge_sub_thres = 15/255' > $@
+
+# Defended - SS only
+$(SCENARIOS)/carla_mot_adversarialpatch_ss.json: $(SCENARIOS)/carla_mot_adversarialpatch_undefended.json | $(SCENARIOS)/
+> cat $< | $(JQ) '.defense = {}' \
+         | $(JQ) '.defense.type = "Preprocessor"' \
+     	 | $(JQ) '.defense.kwargs = {}' \
+         | $(JQ) '.defense.module = "oscar.defences.preprocessor.small_scale_filter"' \
+         | $(JQ) '.defense.name = "SmallScaleFilter"' \
+         | $(JQ) '.defense.kwargs.edge_filter_size = 5' \
+	     | $(JQ) '.defense.kwargs.gaussian_filter_size = 11' \
+         | $(JQ) '.defense.kwargs.edge_sub_thres = 15/255' > $@
+
+
+# Defended - single video
+$(SCENARIOS)/carla_mot_adversarialpatch_ssfilter_vid_%.json: $(SCENARIOS)/carla_mot_adversarialpatch_ssfilter.json | $(SCENARIOS)/
+> cat $< | $(JQ) '.sysconfig.num_eval_batches = 1' \
+         | $(JQ) '.dataset.index = [$*]' > $@

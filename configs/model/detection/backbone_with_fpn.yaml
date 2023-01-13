@@ -1,0 +1,9 @@
+_target_: oscar.models.detection.backbone_utils.BackboneWithFPN
+backbone: ???
+return_layers: {'layer1': '0', 'layer2': '1', 'layer3': '2', 'layer4': '3'}
+in_channels_list: [256, 512, 1024, 2048]
+out_channels: 256
+extra_blocks:
+  _target_: torchvision.ops.feature_pyramid_network.LastLevelMaxPool
+## Valid values are between 0 and 5, with 5 meaning all backbone layers are trainable.
+trainable_layers: 3

@@ -1,0 +1,23 @@
+# FIXME: Just default to mart/configs/trainer/ddp instead?
+_target_: pytorch_lightning.Trainer
+
+default_root_dir: ${paths.output_dir}
+
+# Epochs are a terrible idea
+# min_epochs: 1 # prevents early stopping
+# max_epochs: 10
+
+# GARD defaults to training on GPU
+accelerator: gpu
+strategy:
+  _target_: pytorch_lightning.strategies.DDPStrategy
+  find_unused_parameters: False
+sync_batchnorm: True
+
+# set True to to ensure deterministic results
+# makes training slower but gives more reproducibility than just setting seeds
+deterministic: False
+
+# GARD defaults to no sanity checks and termination on nans
+num_sanity_val_steps: 0
+detect_anomaly: true

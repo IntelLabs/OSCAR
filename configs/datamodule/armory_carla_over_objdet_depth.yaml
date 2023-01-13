@@ -1,0 +1,61 @@
+defaults:
+  - armory_carla_over_objdet
+
+train_dataset:
+  modalities: ["depth"]
+  transforms:
+    transforms:
+      - _target_: torchvision.transforms.ToTensor
+      # ConvertCocoPolysToMask must be prior to ConvertInstanceSegmentationToPerturbable.
+      - _target_: mart.transforms.ConvertCocoPolysToMask
+      - _target_: mart.transforms.RandomHorizontalFlip
+        p: 0.5
+      # Apply ToDepth to last 3 channels of input
+      - _target_: mart.transforms.SplitLambda
+        lambd:
+          _target_: oscar.transforms.ToDepth
+          scale: 1 # because we denormalize below
+        split_size_or_sections: 3
+        lambd_section: -1
+        dim: 0
+      - _target_: mart.transforms.Denormalize
+        center: 0
+        scale: 255
+
+val_dataset:
+  modalities: ["depth"]
+  transforms:
+    transforms:
+      - _target_: torchvision.transforms.ToTensor
+      # ConvertCocoPolysToMask must be prior to ConvertInstanceSegmentationToPerturbable.
+      - _target_: mart.transforms.ConvertCocoPolysToMask
+      # Apply ToDepth to last 3 channels of input
+      - _target_: mart.transforms.SplitLambda
+        lambd:
+          _target_: oscar.transforms.ToDepth
+          scale: 1 # because we denormalize below
+        split_size_or_sections: 3
+        lambd_section: -1
+        dim: 0
+      - _target_: mart.transforms.Denormalize
+        center: 0
+        scale: 255
+
+test_dataset:
+  modalities: ["depth"]
+  transforms:
+    transforms:
+      - _target_: torchvision.transforms.ToTensor
+      # ConvertCocoPolysToMask must be prior to ConvertInstanceSegmentationToPerturbable.
+      - _target_: mart.transforms.ConvertCocoPolysToMask
+      # Apply ToDepth to last 3 channels of input
+      - _target_: mart.transforms.SplitLambda
+        lambd:
+          _target_: oscar.transforms.ToDepth
+          scale: 1 # because we denormalize below
+        split_size_or_sections: 3
+        lambd_section: -1
+        dim: 0
+      - _target_: mart.transforms.Denormalize
+        center: 0
+        scale: 255

@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - COCO_FasterRCNN
+  - override /datamodule: [armory_carla_objdet]
+
+task_name: "ArmoryObjDet_FasterRCNN"
+
+model:
+  modules:
+    preprocessor:
+      min_size: 960
+      max_size: 1280
+
+    backbone:
+      trainable_layers: 5
+
+    box_head:
+      box_predictor:
+        num_classes: 4
+
+trainer:
+  # 3,496 training images, batch_size=2, 6 epochs
+  # FIXME: It would be nice if we could compute this
+  max_steps: 10488

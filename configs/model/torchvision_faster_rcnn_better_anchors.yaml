@@ -1,0 +1,36 @@
+defaults:
+  - torchvision_faster_rcnn
+
+modules:
+  losses_and_detections:
+    model:
+      model:
+        rpn_anchor_generator:
+          _target_: torchvision.models.detection.anchor_utils.AnchorGenerator
+          _convert_: "partial"
+          sizes:
+            -
+              - 0
+              - 4
+              - 16
+            -
+              - 0
+              - 8
+              - 32
+            -
+              - 4
+              - 16
+              - 64
+            -
+              - 8
+              - 32
+              - 128
+            -
+              - 128
+              - 256
+              - 512
+
+          aspect_ratios:
+            - 0.5
+            - 1.0
+            - 2.0

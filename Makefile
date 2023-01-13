@@ -12,7 +12,7 @@ DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.16.2
 DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.16.2
 JQ = jq --indent 4 -r
 YQ = faq -f yaml
-GIT_SUBMODULES = lib/armory/.git lib/MARS/MARS/.git lib/big_transfer/big_transfer/.git lib/detectron2/.git
+GIT_SUBMODULES = lib/MARS/MARS/.git
 MAKEFILE_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ARMORY_SCENARIOS = scenario_configs
 SCENARIOS = $(ARMORY_SCENARIOS)/oscar
@@ -168,16 +168,16 @@ $(SCENARIOS)/%.json.armory_docker_check: $(SCENARIOS)/%.json | .venv
 # and $$(@F) is the filename of the matched target. We used the | (order-only) to separate
 # the base scenario JSON file and model weights .pth file so we can reference them using $| and $<,
 # respectively. See Automatic Variables in Makefile documentation.
-.SECONDEXPANSION:
-$(RESULTS)/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | $(SCENARIOS)/$$(@F)
-> $(if $(word 1, $(shell if [ -f $< ]; then echo $<; else echo; fi)),,$(error There are no pth files in $(MODEL_ZOO)/$(*D)/))
-> $(if $(word 2, $^),$(error There are $(words $^) pth files in $(MODEL_ZOO)/$(*D)/. There should only be one to use: $^),)
-> mkdir -p $(@D)
-> cat $| | $(JQ) ".model.weights_file = \"$(*D)/$(shell basename $<)\"" \
-         | $(JQ) ".sysconfig.output_filename = \"$(@F)\"" > $@
+#.SECONDEXPANSION:
+#$(RESULTS)/%.json: $(MODEL_ZOO)/$$(*D)/*.pth | $(SCENARIOS)/$$(@F)
+#> $(if $(word 1, $(shell if [ -f $< ]; then echo $<; else echo; fi)),,$(error There are no pth files in $(MODEL_ZOO)/$(*D)/))
+#> $(if $(word 2, $^),$(error There are $(words $^) pth files in $(MODEL_ZOO)/$(*D)/. There should only be one to use: $^),)
+#> mkdir -p $(@D)
+#> cat $| | $(JQ) ".model.weights_file = \"$(*D)/$(shell basename $<)\"" \
+#         | $(JQ) ".sysconfig.output_filename = \"$(@F)\"" > $@
 
-$(MODEL_ZOO)/%.pth:
-> $(error No model exists in "$(@D)". You either need to train the model or ask someone for it.)
+#$(MODEL_ZOO)/%.pth:
+#> $(error No model exists in "$(@D)". You either need to train the model or ask someone for it.)
 
 #
 # Precompute preprocessed data for training
@@ -212,5 +212,5 @@ clean_precomputed:
 
 
 # Manually order includes because some things depend upon other things
-include EVAL5_CARLA_DETECTION.mk
+include EVAL6_CARLA_DETECTION.mk
 include CARLA_TRACKING.mk

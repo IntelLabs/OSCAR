@@ -1,0 +1,15 @@
+defaults:
+  - coco_addon_background_mask
+
+test_dataset:
+  transforms:
+    transforms:
+      - _target_: torchvision.transforms.ToTensor
+      # ConvertCocoPolysToMask must be prior to ConvertInstanceSegmentationToPerturbable.
+      - _target_: mart.transforms.ConvertCocoPolysToMask
+      # Add masks of perturbable regions.
+      - _target_: mart.transforms.LoadPerturbableMask
+        perturb_mask_folder: ${datamodule.test_dataset.root}/foreground_mask/
+      - _target_: mart.transforms.Denormalize
+        center: 0
+        scale: 255

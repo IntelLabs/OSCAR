@@ -1,0 +1,14 @@
+_target_: oscar.models.detection.Transform
+interpolation: bilinear
+min_size: 800
+max_size: 1333
+image_mean:
+  - 123.675
+  - 116.28
+  - 103.53
+image_std:
+  - 58.395
+  - 57.12
+  - 57.375
+# size_divisible: 32
+# fixed_size: null

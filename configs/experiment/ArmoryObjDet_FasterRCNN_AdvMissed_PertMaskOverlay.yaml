@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - ArmoryObjDet_FasterRCNN_AdvAP0_PertMaskOverlay
+
+  # Override the gain function.
+  - override /attack/gain@model.modules.input_adv_training.gain: rcnn_class_background
+  - override /attack/gain@model.modules.input_adv_validation.gain: rcnn_class_background
+  - override /attack/gain@model.modules.input_adv_test.gain: rcnn_class_background
+
+  # Override  the objective function.
+  - override /attack/objective@model.modules.input_adv_training.objective: object_detection_missed
+  - override /attack/objective@model.modules.input_adv_validation.objective: object_detection_missed
+  - override /attack/objective@model.modules.input_adv_test.objective: object_detection_missed
+
+task_name: "ArmoryObjDet_FasterRCNN_AdvMissed_PertMaskOverlay"

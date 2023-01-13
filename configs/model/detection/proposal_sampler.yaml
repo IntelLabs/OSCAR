@@ -1,0 +1,21 @@
+_target_: oscar.models.detection.rcnn.ProposalSampler
+box_coder:
+  _target_: torchvision.models.detection._utils.BoxCoder
+  weights:
+    - 10.0
+    - 10.0
+    - 5.0
+    - 5.0
+fg_bg_sampler:
+  _target_: torchvision.models.detection._utils.BalancedPositiveNegativeSampler
+  batch_size_per_image: 512
+  positive_fraction: 0.25
+proposal_matcher:
+  _target_: torchvision.models.detection._utils.Matcher
+  # fg_iou_thresh
+  high_threshold: 0.5
+  # bg_iou_thresh
+  low_threshold: 0.5
+  allow_low_quality_matches: false
+add_gt_to_proposals: true
+balanced_proposal_sampling: true

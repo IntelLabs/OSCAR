@@ -21,17 +21,9 @@ make ubuntu_deps
 ```
 
 To run our submission, you will need to use [ARMORY](https://github.com/twosixlabs/armory).
-We do provide some infrastructure to run our submission using our `Makefile`. Because
-ARMORY relies upon Python, we manage our Python dependencies are managed using [Poetry](https://python-poetry.org).
-The following command will install Poetry and use it to create a virtual environment and
-install all necessary dependencies:
+We use `pyproject.toml` to manage our dependencies. You can install our project using:
 ```
-make python_deps
-```
-
-If you have **not** previously installed Poetry, you will want to add it to your path:
-```
-source $HOME/.poetry/env
+pip install -e .
 ```
 
 Because Armory primarily relies upon Docker images to run evaluations, we created our
@@ -42,12 +34,12 @@ make docker_image
 
 After install all Python dependencies, you need to configure Armory using:
 ```
-poetry run armory configure
+armory configure
 ```
 
-Once configured, you can run our UCF101 defense submission via:
+Once configured, you can run our defense submission via:
 ```
-make run_ucf101_submission
+make run_submission
 ```
 
 ## Contributing

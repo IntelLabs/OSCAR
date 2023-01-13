@@ -1,0 +1,9 @@
+defaults:
+  - .@backbone: backbone_with_fpn
+
+_target_: oscar.models.detection.faster_rcnn.DetectorRPN
+backbone:
+  backbone:
+    in_channels: 3
+num_classes: 3
+input_slice: [3, -1]

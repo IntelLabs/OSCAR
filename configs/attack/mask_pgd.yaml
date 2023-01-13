@@ -1,0 +1,16 @@
+defaults:
+  - perturber/initializer: uniform
+  - perturber/gradient_modifier: sign
+  # We do not inherit pgd.yaml because we cannot delete perturber.projector.eps.
+  - perturber/projector: mask_range
+
+# PGD10_eps255_step26
+optimizer:
+  lr: 26
+
+max_iters: 10
+
+perturber:
+  initializer:
+    min: 0
+    max: 255

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020 Intel Corporation
+# Copyright (C) 2023 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -8,229 +8,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 from typing import Optional
-from collections import OrderedDict
 
 from art.estimators.object_detection import PyTorchFasterRCNN
 import torch
-from torch import Tensor
-from torch.jit.annotations import BroadcastingList2
 
-import torchvision
-from torchvision.models.detection.backbone_utils import resnet_fpn_backbone, BackboneWithFPN, FeaturePyramidNetwork
-from torchvision.models.detection.image_list import ImageList
+from torchvision.models.detection.backbone_utils import resnet_fpn_backbone, FeaturePyramidNetwork
 from torchvision.models.resnet import Bottleneck
 
 from armory.data.utils import maybe_download_weights_from_s3
 from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn import MultimodalNaive
 from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn_robust_fusion import MultimodalRobust
 
+from oscar.models.resnet import ResNet
+from oscar.models.detection.faster_rcnn import FasterRCNN, DetectorRPN
+from oscar.models.detection.backbone_utils import BackboneWithNeck, PyramidalFeatureNetwork
+from oscar.ops.poolers import MultiScaleRoIAlign
+from mart.nn.nn import GroupNorm32
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-class MonkeyPatch:
-    """ Temporarily replace a module's object value, i.e., its functionality """
-    def __init__(self, obj, name, value, verbose=False):
-        self.obj = obj
-        self.name = name
-        self.value = value
-        self.verbose = verbose
-
-    def __enter__(self):
-        self.orig_value = getattr(self.obj, self.name)
-
-        if self.orig_value == self.value:
-            return
-
-        if self.verbose:
-            logger.info("Monkey patching %s to %s", self.orig_value, self.value)
-
-        setattr(self.obj, self.name, self.value)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.orig_value == self.value:
-            return
-
-        if self.verbose:
-            logger.info("Reverting monkey patch on %s", self.orig_value)
-
-        setattr(self.obj, self.name, self.orig_value)
-
-class FasterRCNN(torchvision.models.detection.faster_rcnn.FasterRCNN):
-    """
-        A more composable FasterRCNN by allowing injection of an RPN
-
-            rpn (nn.Module): module to replace default region proposal network (default: None)
-            interpolation (str): interpolation to use in transform (default: bilinear)
-            input_slice (slice): which channels of input to select (default: all channels)
-    """
-    def __init__(
-        self,
-        *args,
-        rpn_score_thresh=0.,
-        rpn=None,
-        interpolation="bilinear",
-        input_slice=None,
-        **kwargs
-    ):
-        with MonkeyPatch(torchvision.models.detection.faster_rcnn, "RegionProposalNetwork", RegionProposalNetwork):
-            super().__init__(*args, **kwargs)
-
-        if rpn is not None:
-            logger.info("Replacing RPN with %s", rpn.__class__.__name__)
-            self.rpn = rpn
-
-        self.rpn.score_thresh = rpn_score_thresh
-
-        # FIXME: Add non-binlinear interpolation
-        if interpolation != "bilinear":
-            logger.warn("Using bilinear interpolation instead of %s", interpolation)
-
-        if input_slice is None:
-            # Default to select first N channels
-            self.input_slice = slice(None, len(self.transform.image_mean))
-        else:
-            self.input_slice = slice(*input_slice)
-
-    def forward(self, x, targets=None):
-        # Create new image_list by selecting slice of input
-        x = [img[self.input_slice] for img in x]
-
-        return super().forward(x, targets=targets)
-
-class RegionProposalNetwork(torchvision.models.detection.rpn.RegionProposalNetwork):
-    """
-        Adds ability to filter region proposals by score threshold.
-
-            score_thresh (float): only propose regions with objectness score >= score_thresh (default: 0.0)
-    """
-    def __init__(self, *args, score_thresh=0.0, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.score_thresh = score_thresh
-
-    def filter_proposals(self, proposals, objectness, image_shapes, num_anchors_per_level):
-        boxes, scores = super().filter_proposals(proposals, objectness, image_shapes, num_anchors_per_level)
-
-        # Keep boxes with score > score_thresh
-        top_boxes = []
-        top_scores = []
-        for b, s in zip(boxes, scores):
-            keep = torch.sigmoid(s) >= self.score_thresh
-            top_boxes.append(b[keep])
-            top_scores.append(s[keep])
-
-        return top_boxes, top_scores
-
-class GroupNorm32(torch.nn.GroupNorm):
-    """
-        GroupNorm with default num_groups=32; can be pass to ResNet's norm_layer.
-
-        See: torch.nn.GroupNorm
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(32, *args, **kwargs)
-
-class MultiScaleRoIAlign(torchvision.ops.poolers.MultiScaleRoIAlign):
-    """
-        Adds ability to specify aligned parameter, i.e., RoIAlignV2.
-
-            aligned (bool): whether to used aligned RoIs (default: False)
-    """
-    def __init__(self, *args, aligned=False, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if aligned:
-            self.aligned = self.roi_align_v2
-        else:
-            self.aligned = torchvision.ops.roi_align
-
-    def forward(self, *args, **kwargs):
-        with MonkeyPatch(torchvision.ops.poolers, "roi_align", self.aligned):
-            ret = super().forward(*args, **kwargs)
-
-        return ret
-
-    @staticmethod
-    def roi_align_v2(input: Tensor,
-                     boxes: Tensor,
-                     output_size: BroadcastingList2[int],
-                     spatial_scale: float = 1.0,
-                     sampling_ratio: int = -1,
-                     aligned: bool = True):
-        return torchvision.ops.roi_align(input, boxes, output_size, spatial_scale, sampling_ratio, aligned)
-
-class ResNet(torchvision.models.resnet.ResNet):
-    """
-        Adds ability to set number of in_channels in ResNet stem.
-
-            in_channels (int): number of input channels (default: 3)
-    """
-    def __init__(self, *args, in_channels=3, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Check if we need to replace conv1
-        if in_channels != self.conv1.in_channels:
-            self.conv1 = torch.nn.Conv2d(in_channels,
-                                         self.conv1.out_channels,
-                                         kernel_size=self.conv1.kernel_size,
-                                         stride=self.conv1.stride,
-                                         padding=self.conv1.padding,
-                                         bias=self.conv1.bias)
-
-class BackboneWithNeck(BackboneWithFPN):
-    """
-        Adds ability to use differnent neck/pyramid class.
-
-            neck_class (nn.Module): neck to use (e.g., torchvision.ops.feature_pyramid_network.FeaturePyramidNetwork)
-    """
-    def __init__(self, *args, neck_class, **kwargs):
-        with MonkeyPatch(torchvision.models.detection.backbone_utils, "FeaturePyramidNetwork", neck_class):
-            super().__init__(*args, **kwargs)
-
-class PyramidalFeatureNetwork(FeaturePyramidNetwork):
-    """
-        Like FeaturePyramidNetwork neck but without the top-down connections.
-
-        See: torchvision.ops.feature_pyramid_network.FeaturePyramidNetwork
-    """
-    def forward(self, x):
-        names = list(x.keys())
-        x = list(x.values())
-
-        results = []
-        for idx in range(len(x)):
-            inner_lateral = self.get_result_from_inner_blocks(x[idx], idx)
-            results.append(self.get_result_from_layer_blocks(inner_lateral, idx))
-
-        if self.extra_blocks is not None:
-            results, names = self.extra_blocks(results, x, names)
-
-        # make it back an OrderedDict
-        out = OrderedDict([(k, v) for k, v in zip(names, results)])
-
-        return out
-
-class DepthDetectorRPN(FasterRCNN):
-    """
-        A detector that acts like a proposer. Uses the last N channels (i.e., depth) to make proposals.
-    """
-    def __init__(self, *args, input_slice=None, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if self.input_slice is None:
-            # Select last N channels (i.e., depth)
-            self.input_slice = slice(-len(self.transform.image_mean), None)
-        else:
-            self.input_slice = slice(*input_slice)
-
-    def forward(self, images, ignored_features, targets=None):
-        # Create new image_list by selecting slice of input
-        images = ImageList(images.tensors[:, self.input_slice], images.image_sizes)
-
-        # Get features from depth-trained backbone
-        features = self.backbone(images.tensors)
-        proposals, losses = self.rpn(images, features, targets)
-
-        return proposals, losses
 
 def create_resnet_backbone(name, **kwargs):
     if name == "multimodal_naive":
@@ -240,16 +35,26 @@ def create_resnet_backbone(name, **kwargs):
         return MultimodalRobust()
 
     if name == "resnet50_fpn":
-        return resnet_fpn_backbone("resnet50", pretrained=False, **kwargs)
+        neck_kwargs = kwargs.pop("neck_kwargs", {})
+        backbone = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+        assert backbone.inplanes == 2048
+        return BackboneWithNeck(backbone,
+                                return_layers={'layer1': '0', 'layer2': '1', 'layer3': '2', 'layer4': '3'},
+                                in_channels_list=[256, 512, 1024, 2048],
+                                out_channels=256,
+                                neck_class=FeaturePyramidNetwork,
+                                **neck_kwargs)
 
     if name == "resnet50gn_fpn":
+        neck_kwargs = kwargs.pop("neck_kwargs", {})
         backbone = ResNet(Bottleneck, [3, 4, 6, 3], norm_layer=GroupNorm32, **kwargs)
         assert backbone.inplanes == 2048
         return BackboneWithNeck(backbone,
                                 return_layers={'layer1': '0', 'layer2': '1', 'layer3': '2', 'layer4': '3'},
                                 in_channels_list=[256, 512, 1024, 2048],
                                 out_channels=256,
-                                neck_class=FeaturePyramidNetwork)
+                                neck_class=FeaturePyramidNetwork,
+                                **neck_kwargs)
 
     if name == "resnet50gn_pfn":
         backbone = ResNet(Bottleneck, [3, 4, 6, 3], norm_layer=GroupNorm32, **kwargs)
@@ -290,7 +95,7 @@ def get_art_model(model_kwargs: dict, wrapper_kwargs: dict, model_weights_path: 
     rpn_kwargs = model_kwargs.pop("rpn", None)
     if rpn_kwargs is not None:
         assert isinstance(rpn_kwargs, dict)
-        rpn = create_and_load_detector(DepthDetectorRPN, **rpn_kwargs)
+        rpn = create_and_load_detector(DetectorRPN, **rpn_kwargs)
         model_kwargs["rpn"] = rpn
 
     # Load detector

@@ -1,0 +1,3 @@
+defaults:
+  - backbone_with_fpn
+  - /model@backbone: resnet50

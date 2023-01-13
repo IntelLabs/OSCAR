@@ -1,0 +1,6 @@
+defaults:
+  - rcnn_class_background
+
+module:
+  # Try to classify as non-background.
+  targeted: false

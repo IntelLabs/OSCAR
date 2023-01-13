@@ -1,0 +1,18 @@
+defaults:
+  - perturber/initializer: uniform
+  - perturber/gradient_modifier: sign
+  - perturber/projector: linf_additive_range
+
+# PGD10_eps2_step1
+optimizer:
+  lr: 1
+
+max_iters: 10
+
+perturber:
+  initializer:
+    min: -2
+    max: 2
+
+  projector:
+    eps: 2

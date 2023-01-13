@@ -1,0 +1,39 @@
+# @package _global_
+
+defaults:
+  # Use the torchvision model with pretrained weights.
+  - COCO_TorchvisionFasterRCNN
+  - override /datamodule: [armory_carla_objdet]
+
+task_name: "ArmoryObjDet_FasterRCNNFromCoco"
+
+# No training is required.
+fit: false
+
+model:
+  modules:
+    class_adaptor:
+      _target_: oscar.utils.dataset_class_adaptor.CocoCarlaAdaptor
+      # nms_thresh: ${model.modules.box_predictor.nms_thresh}
+      nms_thresh: 0.5
+
+  test_sequence:
+    - input_adv_test:
+        _call_with_args_: ["input", "target"]
+        model: model
+        step: step
+    - preprocessor: ["input_adv_test"]
+    - losses_and_detections: ["preprocessor", "target"]
+
+    # Box class adaptation: COCO -> Carla
+    - class_adaptor: ["losses_and_detections.eval"]
+
+    - output:
+        {
+          "preds": "class_adaptor",
+          "target": "target",
+          "rpn_loss.loss_objectness": "losses_and_detections.training.loss_objectness",
+          "rpn_loss.loss_rpn_box_reg": "losses_and_detections.training.loss_rpn_box_reg",
+          "box_loss.loss_classifier": "losses_and_detections.training.loss_classifier",
+          "box_loss.loss_box_reg": "losses_and_detections.training.loss_box_reg",
+        }

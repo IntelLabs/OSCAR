@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - COCO_TorchvisionFasterRCNN
+  - override /model: faster_rcnn
+
+task_name: "COCO_FasterRCNN"
+
+model:
+  # GARD uses a different architecture than MART, so disable MART's stuff for now
+  modules:
+    losses_and_detections: null

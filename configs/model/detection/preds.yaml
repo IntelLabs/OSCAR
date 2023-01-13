@@ -1,0 +1,2 @@
+# FIXME: We have to name it preds due to the limitation of mart.nn.
+_target_: oscar.models.detection.ReverseTargetTransform

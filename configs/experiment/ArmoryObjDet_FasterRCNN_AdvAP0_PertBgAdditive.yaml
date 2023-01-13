@@ -1,0 +1,17 @@
+# @package _global_
+
+defaults:
+  - ArmoryObjDet_FasterRCNN
+
+  # fgsm_eps1.75 in training, pgd10_eps2_step1 for validation and test.
+  - /attack@model.modules.input_adv_training: [object_detection_adversary_mask_additive, fgsm]
+  - /attack@model.modules.input_adv_validation: [object_detection_adversary_mask_additive, pgd]
+  - /attack@model.modules.input_adv_test: [object_detection_adversary_mask_additive, pgd]
+
+  # Visualize x_adv in test.
+  - /attack/callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
+
+  # Add perturbable_mask to target.
+  - override /datamodule: [armory_carla_objdet, coco_addon_background_mask]
+
+task_name: "ArmoryObjDet_FasterRCNN_AdvAP0_PertBgAdditive"
