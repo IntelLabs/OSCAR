@@ -1,0 +1,50 @@
+FROM nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04
+
+ARG PYTHONVERSION="3"
+
+# Setup environment
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update ; \
+  apt-get install -y wget software-properties-common && \
+  add-apt-repository ppa:ubuntu-toolchain-r/test && \
+  wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|apt-key add - && \
+  apt-add-repository "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main" && \
+  apt-get update ; \
+  apt-add-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal main" ; \
+  apt-get install -y build-essential \
+    clang-10 \
+    lld-10 \
+    g++-7 \
+    cmake \
+    ninja-build \
+    libvulkan1 \
+    libpng-dev \
+    libtiff5-dev \
+    libjpeg-dev \
+    tzdata \
+    sed \
+    curl \
+    unzip \
+    autoconf \
+    libtool \
+    rsync \
+    libxml2-dev \
+    git \
+    vim \
+    libgl1-mesa-glx \
+    aria2 && \
+  update-alternatives --install /usr/bin/clang++ clang++ /usr/lib/llvm-10/bin/clang++ 180 && \
+  update-alternatives --install /usr/bin/clang clang /usr/lib/llvm-10/bin/clang 180
+
+# Install python3 dependencies
+RUN add-apt-repository ppa:deadsnakes/ppa && \
+  apt-get install -y \
+  "python${PYTHONVERSION}" \
+  "python${PYTHONVERSION}-dev" \
+  "python${PYTHONVERSION}-distutils"
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python${PYTHONVERSION} && \
+  python${PYTHONVERSION} -m pip install --upgrade pip && \
+  python${PYTHONVERSION} -m pip install distro
+
+WORKDIR /opt/carla
+RUN git config --global --add safe.directory /opt/carla

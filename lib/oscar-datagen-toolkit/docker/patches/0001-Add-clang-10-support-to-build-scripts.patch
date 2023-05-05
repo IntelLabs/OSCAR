@@ -1,0 +1,85 @@
+From fa6e035a95691d2cff710ca9b47281d5d872c961 Mon Sep 17 00:00:00 2001
+From: "Murillo Rojas, Luis" <luis.murillo.rojas@intel.com>
+Date: Wed, 12 Apr 2023 21:38:19 +0000
+Subject: [PATCH 1/4] Add clang 10 support to build scripts
+
+---
+ Util/BuildTools/BuildOSM2ODR.sh   |  4 ++--
+ Util/BuildTools/BuildPythonAPI.sh |  4 ++--
+ Util/BuildTools/Setup.sh          | 14 +++++++-------
+ 3 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/Util/BuildTools/BuildOSM2ODR.sh b/Util/BuildTools/BuildOSM2ODR.sh
+index b1c2bf596..2422c5e39 100755
+--- a/Util/BuildTools/BuildOSM2ODR.sh
++++ b/Util/BuildTools/BuildOSM2ODR.sh
+@@ -89,8 +89,8 @@ if ${BUILD_OSM2ODR} ; then
+   mkdir -p ${OSM2ODR_BUILD_FOLDER}
+   cd ${OSM2ODR_BUILD_FOLDER}
+   # define clang compiler
+-  export CC=/usr/bin/clang-8
+-  export CXX=/usr/bin/clang++-8
++  export CC=/usr/bin/clang-10
++  export CXX=/usr/bin/clang++-10
+
+   cmake ${OSM2ODR_SOURCE_FOLDER} \
+       -G "Eclipse CDT4 - Ninja" \
+diff --git a/Util/BuildTools/BuildPythonAPI.sh b/Util/BuildTools/BuildPythonAPI.sh
+index 10c985823..519a94faa 100755
+--- a/Util/BuildTools/BuildPythonAPI.sh
++++ b/Util/BuildTools/BuildPythonAPI.sh
+@@ -50,8 +50,8 @@ done
+
+ source $(dirname "$0")/Environment.sh
+
+-export CC=clang-8
+-export CXX=clang++-8
++export CC=clang-10
++export CXX=clang++-10
+
+ if ! { ${REMOVE_INTERMEDIATE} || ${BUILD_PYTHONAPI} ; }; then
+   fatal_error "Nothing selected to be done."
+diff --git a/Util/BuildTools/Setup.sh b/Util/BuildTools/Setup.sh
+index 22430cbee..75e550d3d 100755
+--- a/Util/BuildTools/Setup.sh
++++ b/Util/BuildTools/Setup.sh
+@@ -37,14 +37,14 @@ done
+ # -- Set up environment --------------------------------------------------------
+ # ==============================================================================
+
+-command -v /usr/bin/clang++-8 >/dev/null 2>&1 || {
+-  echo >&2 "clang 8 is required, but it's not installed.";
++command -v /usr/bin/clang++-10 >/dev/null 2>&1 || {
++  echo >&2 "clang 10 is required, but it's not installed.";
+   exit 1;
+ }
+
+-CXX_TAG=c8
+-export CC=/usr/bin/clang-8
+-export CXX=/usr/bin/clang++-8
++CXX_TAG=c10
++export CC=/usr/bin/clang-10
++export CXX=/usr/bin/clang++-10
+
+ source $(dirname "$0")/Environment.sh
+
+@@ -105,7 +105,7 @@ unset LLVM_BASENAME
+ # -- Get boost includes --------------------------------------------------------
+ # ==============================================================================
+
+-BOOST_VERSION=1.72.0
++BOOST_VERSION=1.75.0
+ BOOST_BASENAME="boost-${BOOST_VERSION}-${CXX_TAG}"
+
+ BOOST_INCLUDE=${PWD}/${BOOST_BASENAME}-install/include
+@@ -429,7 +429,7 @@ XERCESC_VERSION=3.2.3
+ XERCESC_BASENAME=xerces-c-${XERCESC_VERSION}
+
+ XERCESC_TEMP_FOLDER=${XERCESC_BASENAME}
+-XERCESC_REPO=https://ftp.cixug.es/apache//xerces/c/3/sources/xerces-c-${XERCESC_VERSION}.tar.gz
++XERCESC_REPO=https://archive.apache.org/dist/xerces/c/3/sources/xerces-c-${XERCESC_VERSION}.tar.gz
+
+ XERCESC_SRC_DIR=${XERCESC_BASENAME}-source
+ XERCESC_INSTALL_DIR=${XERCESC_BASENAME}-install
+--
+2.34.1

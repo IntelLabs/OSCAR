@@ -1,0 +1,44 @@
+# @package _global_
+
+max_frames: 10
+
+spawn_actors:
+  - _target_: oscar_datagen_tools.simulation.actors.Walker
+    role_name: "hero1"
+    is_invincible: false
+    speed: 1.4 # Between 1 and 2 m/s (default is 1.4 m/s).
+    transform:
+      _target_: carla.Transform
+      location:
+        _target_: carla.Location
+        x: -91
+        y: 170
+        z: 0.6
+      rotation:
+        _target_: carla.Rotation
+        yaw: -90.0
+    attachments:
+      - _target_: oscar_datagen_tools.simulation.actors.WalkerController
+        max_speed: 1.4
+        destination_transform:
+          _target_: carla.Transform
+          location:
+            _target_: carla.Location
+            x: -91
+            y: 150
+            z: 0.6
+
+      - _target_: oscar_datagen_tools.simulation.actors.Camera
+        image_size_x: 800
+        image_size_y: 600
+        sensors_blueprints:
+          - _target_: oscar_datagen_tools.simulation.blueprints.RGB
+            gamma: 2.2
+          - _target_: oscar_datagen_tools.simulation.blueprints.Depth
+          - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
+        transform:
+          _target_: carla.Transform
+          location:
+            _target_: carla.Location
+            x: -6.0
+            z: 1.5

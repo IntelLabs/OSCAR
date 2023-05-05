@@ -1,0 +1,50 @@
+[project]
+name = "oscar_datagen_toolkit"
+version = "0.0.1"
+description = "OSCAR Datagen Toolkit"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+  { name = "Intel Corporation", email = "luis.murillo.rojas@intel.com" },
+]
+
+requires-python = ">=3.7"
+
+dependencies = [
+  "fire ~= 0.5.0",
+  "pygame ~= 2.3.0",
+  "numpy",
+  "tqdm ~= 4.65.0",
+
+  # --------- logs --------- #
+  "coloredlogs ~= 15.0.1",
+
+  # --------- hydra --------- #
+  "hydra-core ~= 1.2.0",
+
+  # ----- object detection----- #
+  "pycocotools @ git+https://github.com/lumurillo/coco.git@5984119dbc167701fb90d64265608aa1b7c9fc4e",
+  "pycococreatortools @ git+https://github.com/lumurillo/pycococreator.git@f89fb3155ca23e2af626ed020ac82c057ae09e56",
+
+  # -------- CV --------- #
+  "opencv-python ~= 4.5.5.62",
+
+  # ------ Simulator ------ #
+  "carla == 0.9.13"
+]
+
+[project.urls]
+Source = "https://github.com/IntelLabs/carla-datagen-toolkit"
+
+[project.scripts]
+oscar_data_saver = "oscar_datagen_tools.oscar_data_saver:main"
+oscar_data_annotator = "oscar_datagen_tools.carla_annotator:main"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+include = ["oscar_datagen_tools*", "hydra_plugins*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]

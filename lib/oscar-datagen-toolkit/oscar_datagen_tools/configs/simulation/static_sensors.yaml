@@ -1,0 +1,21 @@
+# @package _global_
+
+max_frames: 50
+
+spawn_actors:
+  - _target_: oscar_datagen_tools.simulation.actors.Camera
+    image_size_x: 800
+    image_size_y: 600
+    sensors_blueprints:
+      - _target_: oscar_datagen_tools.simulation.blueprints.RGB
+        gamma: 2.2
+      - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
+    motion_params:
+      _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
+      sampling_resolution: 1
+    transform:
+      _target_: carla.Transform
+      location:
+        _target_: carla.Location
+        x: -6.0
+        z: 1.5
