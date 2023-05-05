@@ -1,6 +1,6 @@
 [project]
 name = "oscar_datagen_toolkit"
-version = "0.0.1"
+version = "3.0.0"
 description = "OSCAR Datagen Toolkit"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -34,11 +34,11 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/IntelLabs/carla-datagen-toolkit"
+Source = "https://github.com/IntelLabs/OSCAR/tree/main/lib/oscar-datagen-toolkit"
 
 [project.scripts]
 oscar_data_saver = "oscar_datagen_tools.oscar_data_saver:main"
-oscar_data_annotator = "oscar_datagen_tools.carla_annotator:main"
+oscar_data_annotator = "oscar_datagen_tools.oscar_annotator:main"
 
 [tool.setuptools]
 zip-safe = false
