@@ -59,6 +59,7 @@ class Context(Client):
 
     @run_request
     def verify_connection(self) -> bool:
+        # TODO: Add a verification if the CARLA server is up and running
         client_version = self.get_client_version().split("-")[0]
         server_version = self.get_server_version().split("-")[0]
         logger.info(f"CARLA client version: {client_version}")

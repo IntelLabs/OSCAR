@@ -44,7 +44,7 @@ if [[ "$(docker images -q $DOCKER_TAG 2> /dev/null)" == "" ]]; then
         --build-arg PYTHONVERSION=$PY_VERSION \
         --force-rm \
         --tag $DOCKER_TAG \
-        --file Dockerfile-carla-build .
+        --file Dockerfile-base .
 fi
 
 # ==============================================================================
