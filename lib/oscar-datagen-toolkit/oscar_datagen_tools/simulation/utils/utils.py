@@ -153,7 +153,7 @@ def __save_metadata_file__(metadata: dict, filename: str = "metadata_static.json
 
     metadata_static_file = metadata_path / filename
     with open(metadata_static_file, "w") as json_file:
-        json.dump(metadata, json_file, indent=4)
+        json.dump(metadata, json_file, indent=1)
 
 
 def save_static_metadata(actors: list[Actor]):
