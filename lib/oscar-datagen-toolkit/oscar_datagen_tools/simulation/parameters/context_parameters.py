@@ -7,7 +7,12 @@
 
 from dataclasses import dataclass
 
+from numpy import random
+
 __all__ = ["ClientParameters", "SimulationParameters", "SyncParameters"]
+
+
+MAX_RAND_VALUE = int("ffffffff", 16)
 
 
 @dataclass
@@ -22,7 +27,7 @@ class ClientParameters:
     port: int = 2000
     timeout: float = 5.0
     retry: int = 5
-    seed: int = 42
+    seed: int = random.randint(1, MAX_RAND_VALUE)
 
 
 @dataclass
