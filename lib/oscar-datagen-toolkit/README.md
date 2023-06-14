@@ -4,7 +4,7 @@ This repository contains a set of tools for generating synthetic datasets using 
 
 ## Requirements
 
-- [Docker](https://github.com/intel-sandbox/carla-datagen-toolkit/wiki/Setup-Docker)
+- [Docker](https://docs.docker.com/engine/install/#server)
 
 If you want to install the tools outside of the Docker container, build and install the CARLA Python package before install the tools:
 
