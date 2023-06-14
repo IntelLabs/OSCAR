@@ -100,4 +100,3 @@ repos:
         args:
           - --skip=logs/**,data/**
           - --ignore-words-list=abc,def,gard,ue
-          
