@@ -4,16 +4,21 @@
 # agreement between Intel Corporation and you.
 #
 
+from __future__ import annotations
+
 import logging
 from itertools import cycle
+from typing import TYPE_CHECKING
 
 import coloredlogs
 from carla import Client, Transform, WeatherParameters, WorldSettings
 from numpy import random
 from packaging import version
 
-from .parameters import ClientParameters, SimulationParameters, SyncParameters
 from .utils import run_request
+
+if TYPE_CHECKING:
+    from .parameters import ClientParameters, SimulationParameters, SyncParameters
 
 __all__ = ["Context"]
 

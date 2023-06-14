@@ -64,7 +64,10 @@ class SyncMode:
         return self
 
     def tick(self, timeout) -> carla.WorldSnapshot:
-        self.frame = self.context.world.tick()
+        # execute the interval of ticks defined in the
+        # simulation parameters
+        for _ in range(self.context.simulation_params.interval):
+            self.frame = self.context.world.tick()
 
         # wait for simulation data
         snapshot = self.context.world.get_snapshot()

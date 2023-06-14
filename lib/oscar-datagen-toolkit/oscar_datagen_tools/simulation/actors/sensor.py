@@ -82,15 +82,14 @@ class Sensor(Actor, ISensor):
             **kwargs,
         )
 
-        self.motion_params = motion_params if motion_params is not None else MotionParameters()
+        self.motion_params = motion_params or MotionParameters()
         self.blueprint = blueprint
         self.data = None
 
         self.controller = SensorController(
             transform=self.transform,
             destination_transform=self.destination_transform,
-            sampling_resolution=self.motion_params.sampling_resolution,
-            lane_type=self.motion_params.lane_type,
+            motion_params=motion_params,
         )
         self.controller.parent = self
         self.attachments.append(self.controller)
@@ -203,6 +202,7 @@ class Camera(Actor, ISensor):
         self.id = int(uuid.uuid1())
         self.carla_actor = None
         self.parent = None
+        self.motion_params = motion_params or MotionParameters()
 
         assert len(sensors_blueprints) > 0, "The camera must have at least one sensor!"
 

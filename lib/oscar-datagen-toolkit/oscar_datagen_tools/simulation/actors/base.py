@@ -44,7 +44,10 @@ class Actor:
         self.attachment_type = attachment_type
 
         for attachment in self.attachments:
-            attachment.parent = self
+            # avoid override an already set parent. This is specially relevant
+            # for actors that share attachments.
+            if attachment.parent is None:
+                attachment.parent = self
 
     def get_transform(self):
         if self.carla_actor is not None:
@@ -113,6 +116,11 @@ class Actor:
 
         # spawn attachments
         for attachment in self.attachments:
+            # verify that the attachment is linked to the actor. This is relevant in the case of the
+            # Camera actor where the sensors share the attachments.
+            if id(self) != id(attachment.parent):
+                continue
+
             if not attachment.spawn():
                 return False
 

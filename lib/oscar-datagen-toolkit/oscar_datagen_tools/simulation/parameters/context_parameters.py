@@ -35,3 +35,5 @@ class SimulationParameters:
     traffic_manager_port: int = 8000
     respawn: bool = True
     townmap: str = "Town01"
+    warmup: int = 150
+    interval: int = 1

@@ -12,6 +12,7 @@ from typing import List
 import coloredlogs
 import hydra
 from hydra.core.hydra_config import HydraConfig
+from numpy import random
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
@@ -53,6 +54,9 @@ class CollectorController:
         if not self.context.setup_simulator():
             return False
 
+        # set random seed before generate actors
+        random.seed(self.context.client_params.seed)
+
         if self.actors_generator is not None:
             # add auto generated actors
             vehicles = self.actors_generator.generate_vehicles()
@@ -63,6 +67,9 @@ class CollectorController:
         for actor in self.actors:
             # add the actor's attachments to the actor's list
             self.actors += actor.attachments
+
+        # set random seed before spawn the actors
+        random.seed(self.context.client_params.seed)
 
         # spawn actors
         for actor in tqdm(self.actors, desc="Actors's spawn progress"):
@@ -90,6 +97,10 @@ class CollectorController:
         assert self.context is not None
 
         with SyncMode(self.context, self.sensors) as sync_mode:
+            # warm up time before start collecting
+            for _ in tqdm(range(self.context.simulation_params.warmup), desc="Warmup counter"):
+                self.context.world.tick()
+
             local_frame_num = 0
             while True:
                 local_frame_num += 1
@@ -135,7 +146,11 @@ def main(cfg: DictConfig) -> None:
     logger.info(OmegaConf.to_yaml(cfg))
 
     # First instantiation of the Context Singleton object
-    hydra.utils.instantiate(cfg.context, reinit=True)
+    context = hydra.utils.instantiate(cfg.context, reinit=True)
+
+    # set random seed before instantiate the spawn actors
+    logger.info(f"Random seed: {context.client_params.seed}")
+    random.seed(context.client_params.seed)
 
     # Convert all to primitive containers when instantiating the actors, specially
     # for the Blueprint's Sensor data type where the Camera's init method verify

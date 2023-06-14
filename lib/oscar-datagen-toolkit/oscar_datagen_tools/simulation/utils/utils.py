@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import coloredlogs
-from carla import WorldSnapshot
+from carla import WorldSnapshot, Transform
 from hydra.core.hydra_config import HydraConfig
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ __all__ = [
     "save_static_metadata",
     "save_dynamic_metadata",
     "is_jsonable",
+    "is_equal",
 ]
 
 RETRY = 5
@@ -216,3 +217,28 @@ def is_jsonable(value: Any):
         return True
     except (TypeError, OverflowError):
         return False
+
+
+def is_equal(transform_a: Transform, transform_b: Transform, threshold: float = 0.5) -> bool:
+    """Compare two different Transforms to verify if they are equal.
+
+    Args:
+        transform_a (carla.Transform): First transform.
+        transform_b (carla.Transform): Second transform.
+        threshold (float): Tolerance value.
+    
+    Returns:
+        bool: True if the transformers are equal or Flase otherwise.
+    """
+
+    # If any of the paramenters differ more than the threshold value the
+    # transformers are considered different.
+    if (abs(transform_a.location.x - transform_b.location.x) > threshold or
+        abs(transform_a.location.y - transform_b.location.y) > threshold or
+        abs(transform_a.location.z - transform_b.location.z) > threshold or
+        abs(transform_a.rotation.pitch - transform_b.rotation.pitch) > threshold or
+        abs(transform_a.rotation.yaw - transform_b.rotation.yaw) > threshold or
+        abs(transform_a.rotation.roll - transform_b.rotation.roll) > threshold):
+        return False
+    
+    return True
