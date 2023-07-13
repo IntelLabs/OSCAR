@@ -4,7 +4,7 @@ This repository contains a set of tools for generating synthetic datasets using 
 
 ## Requirements
 
-- [Docker](https://github.com/intel-sandbox/carla-datagen-toolkit/wiki/Setup-Docker)
+- [Docker](./docs/Setup-Docker.md)
 
 If you want to install the tools outside of the Docker container, build and install the CARLA Python package before install the tools:
 
@@ -99,9 +99,9 @@ To run this tool outside the Docker container use the following command"
 oscar_data_saver --config-dir=</path/to/config/directory> --config-name=<CONFIG_NAME> hydra.run.dir=</path/to/output>
 ```
 
-> Find [here](https://github.com/intel-sandbox/carla-datagen-toolkit/wiki/Data-collector-config-example) an example configuration file.
+> Find [here](./docs/Data-collector-config-example.md) an example configuration file.
 
-> By default the generated data is stored in the `data` directory, and the logs in the `logs` directory. If you want to change those paths, modify the variables **HOST_DATA_MOUNT_POINT** and **HOST_LOG_MOUNT_POINT** defined in the [.env](https://github.com/intel-sandbox/carla-datagen-toolkit/blob/main/.env) file.
+> By default the generated data is stored in the `data` directory, and the logs in the `logs` directory. If you want to change those paths, modify the variables **HOST_DATA_MOUNT_POINT** and **HOST_LOG_MOUNT_POINT** defined in the [.env](./.env) file.
 
 > The **PROJECT_ROOT** environment variable is used to define where the data and logs will be stored.
 
