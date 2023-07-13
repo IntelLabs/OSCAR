@@ -7,3 +7,5 @@ scenario_configs/
 oscar/model_zoo/
 logs/
 results/
+
+!lib/oscar-datagen-toolkit
