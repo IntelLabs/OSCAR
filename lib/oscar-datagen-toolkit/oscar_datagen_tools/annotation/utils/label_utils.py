@@ -23,7 +23,7 @@ coloredlogs.install(level=logging.INFO)
 INFO = {
     "description": "Carla Dataset",
     "url": "https://github.com/carla-simulator/carla",
-    "version": "0.9.12",
+    "version": "0.9.13",
     "year": 2021,
     "contributor": "",
     "date_created": datetime.datetime.utcnow().isoformat(" "),

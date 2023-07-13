@@ -1,6 +1,18 @@
+# generate dynamically each run id
+now_dir: ${now:%Y-%m-%d}_${now:%H-%M-%S-%f}
+
+# path to root directory
+# this requires PROJECT_ROOT environment variable to exist
+# you can replace it with "." if you want the root to be the current working directory
+root_dir: ${oc.env:PROJECT_ROOT}
+
+# path to data directory
+data_dir: ${paths.root_dir}/data/{modality_type}/${paths.now_dir}
+
+# path to logging directory
+log_dir: ${paths.root_dir}/logs/${paths.now_dir}
+
 # path to output directory, created dynamically by hydra
-# path generation pattern is specified in `configs/hydra/default.yaml`
-# use it to store all files generated during the run, like ckpts and metrics
 output_dir: ${hydra:runtime.output_dir}
 
 # path to working directory

@@ -17,18 +17,20 @@ __all__ = [
     "get_camera_id",
     "get_image_id",
     "get_sensor_type",
-    "verify_camera_name",
+    "verify_run_name",
     "verify_image_filename",
-    "verify_sensor_name",
 ]
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.INFO)
 
 # regex patterns
-camera_pattern = re.compile(r"sensor\.camera\.[0-9]+", re.IGNORECASE)  # sensor.camera.<ID>
-filename_pattern = re.compile(r"[0-9]+\.png", re.IGNORECASE)  # 0000000n.png
-sensor_name_pattern = re.compile(r"[A-Za-z_]+\.[0-9]+", re.IGNORECASE)  # <TYPE>.<ID>
+run_pattern = re.compile(
+    r"[0-9]+-[0-9]+-[0-9]+_[0-9]+-[0-9]+-[0-9]+-[0-9]+", re.IGNORECASE
+)  # Y-m-d_H-M-S-f
+filename_pattern = re.compile(
+    r"route[0-9]+_[0-9]*\.[0-9]+z_[0-9]*\.[0-9]+deg\.[0-9]+\.png", re.IGNORECASE
+)  # route<CAMERA_ID>_<Z_LOCATION>z_<PITCH>deg.0000000n.png
 
 # camera constants
 CAMERA_ID = -1
@@ -54,7 +56,7 @@ def format_camera_name(camera_id: int) -> str:
 
 
 def format_sensor_name(name: str) -> str:
-    """Adjust the format of the sensor name, where the expected format is: <TYPE>.<ID>
+    """Adjust the format of the sensor name, where the expected format is: <TYPE>
 
     Parameters
     ----------
@@ -66,23 +68,28 @@ def format_sensor_name(name: str) -> str:
         Sensor's formatted name.
     """
     sensor_type = name.split(".")[SENSOR_TYPE]
-    sensor_id = name.split(".")[SENSOR_ID]
-    return f"{sensor_type}.{sensor_id}"
+    return sensor_type
 
 
-def generate_image_filename(index: int) -> str:
+def generate_image_filename(camera_id: int, z_location: float, pitch: float, index: int) -> str:
     """Creates an image filename with the format: 0000000n.png.
 
     Parameters
     ----------
-    name : index
-        Image index.
+    camera_id : int
+        Camera ID.
+    z_location: float
+        Camera's elevation
+    pitch: float
+        Camera's pitch angle
+    index: int
+        Frame index
     Returns
     -------
     image_name: str
         Image's formatted name.
     """
-    return f"{index:08}"
+    return f"route{camera_id}_{z_location:.2f}z_{pitch:.2f}deg.{index:08}.png"
 
 
 def get_camera_id(path: Path) -> int:
@@ -101,7 +108,7 @@ def get_camera_id(path: Path) -> int:
 
 
 def get_image_id(path: Path) -> int:
-    """Gets the image ID from it's name.
+    """Gets the image ID from it's filename.
 
     Parameters
     ----------
@@ -109,12 +116,12 @@ def get_image_id(path: Path) -> int:
         Path to image's file.
     Returns
     -------
-    image_id: int
+    image_id: str
         Image's identifier.
     """
 
-    # The expected filename follows the format "000000n.png"
-    return int(path.stem)
+    # The expected filename follows the format "route<CAMERA_ID>_<Z_LOCATION>z_<PITCH>deg.0000000n.png"
+    return path.stem
 
 
 def get_sensor_type(path: Path) -> str:
@@ -129,24 +136,24 @@ def get_sensor_type(path: Path) -> str:
     sensor_type: str
         Sensor's type name.
     """
-    return path.name.split(".")[SENSOR_TYPE]
+    return path.name
 
 
-def verify_camera_name(name: str) -> bool:
-    """Verify if the camera name follows the
-    format: sensor.camera.<ID>.
+def verify_run_name(name: str) -> bool:
+    """Verify if the run name follows the
+    format: Y-m-d_H-M-S-f.
 
     Parameters
     ----------
     name : str
-        Camera's name.
+        Run's name.
     Returns
     -------
     result: bool
         True if the name is correct, False otherwise.
     """
-    if not camera_pattern.match(name):
-        logger.warning(f"Camera name {name} does not follow the format: sensor.camera.<ID>")
+    if not run_pattern.match(name):
+        logger.warning(f"Run name {name} does not follow the format: Y-m-d_H-M-S-f")
         return False
 
     return True
@@ -154,7 +161,7 @@ def verify_camera_name(name: str) -> bool:
 
 def verify_image_filename(filename: str) -> bool:
     """Verify if the image name follows the
-    format: 0000000n.png.
+    format: route<CAMERA_ID>_<Z_LOCATION>z_<PITCH>deg.0000000n.png.
 
     Parameters
     ----------
@@ -166,27 +173,9 @@ def verify_image_filename(filename: str) -> bool:
         True if the name is correct, False otherwise.
     """
     if not filename_pattern.match(filename):
-        logger.warning(f"Filename {filename} does not follow the format: 000000n.png")
-        return False
-
-    return True
-
-
-def verify_sensor_name(name: str) -> bool:
-    """Verify if the sensor name follows the
-    format: <TYPE>.<ID>.
-
-    Parameters
-    ----------
-    name : str
-        Sensor's name.
-    Returns
-    -------
-    result: bool
-        True if the name is correct, False otherwise.
-    """
-    if not sensor_name_pattern.match(name):
-        logger.warning(f"Sensor name {name} does not follow the format: <TYPE>.<ID>")
+        logger.warning(
+            f"Filename {filename} does not follow the format: route<CAMERA_ID>_<Z_LOCATION>z_<PITCH>deg.0000000n.png"
+        )
         return False
 
     return True

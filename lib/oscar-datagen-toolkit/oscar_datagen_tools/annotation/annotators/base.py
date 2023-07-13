@@ -45,7 +45,7 @@ class Annotator(abc.ABC):
         for idx, (data_path, categories_mat_path) in tqdm(
             enumerate(zip(data_paths, categories_mat_paths)),
             total=len(data_paths),
-            desc="Camera annotation progress",
+            desc="Run annotation progress",
         ):
             if idx % self.interval != 0:
                 continue

@@ -23,7 +23,7 @@ from ..blueprints import InstanceSegmentation as BPInstanceSegmentation
 from ..blueprints import Sensor as BPSensor
 from ..context import Context
 from ..parameters import MotionParameters
-from ..utils import is_jsonable
+from ..utils import is_jsonable, replace_modality_in_path
 from .base import Actor
 from .controller_actors import SensorController
 
@@ -149,12 +149,12 @@ class Sensor(Actor, ISensor):
 
         return command
 
-    def save_to_disk(self, path: Path) -> None:
+    def save_to_disk(self, path: str) -> None:
         if self.data is None:
             logger.error("Sensor's data is None!")
             return
 
-        self.data.save_to_disk(str(path))
+        self.data.save_to_disk(path)
         self.data = None
 
     def get_static_metadata(self):
@@ -336,8 +336,9 @@ class Camera(Actor, ISensor):
             return
 
         for sensor in self.sensors:
-            # generate intermediate directories for each of the sensors
-            sensor.save_to_disk(path.parent / sensor.name / path.name)
+            # specify intermediate directories for each of the sensors.
+            sensor_path = replace_modality_in_path(path, modality=sensor.name)
+            sensor.save_to_disk(sensor_path)
 
     def is_alive(self) -> bool:
         alive_sensors = 0

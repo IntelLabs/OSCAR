@@ -15,7 +15,7 @@ from scipy import ndimage
 
 from oscar_datagen_tools.common_utils import get_image_id, get_sensor_type
 
-from ..utils import INFO, LICENSES, CategoriesHandler, calc_image_id
+from ..utils import INFO, LICENSES, CategoriesHandler, calc_image_id, get_relative_path
 from .base import Annotator
 from .format import Format
 
@@ -43,13 +43,15 @@ class COCO(Annotator):
     def __pre_annotation__(self, category_mat_path: Path, data_path: Path, frame: int) -> ndimage:
         categories_mat = super().__pre_annotation__(category_mat_path, data_path, frame)
 
-        camera_type_name = get_sensor_type(data_path.parent)
+        # The camera type is expected to be in the path's second parent: <CAMERA_TYPE>/<RUN>/<IMAGE>
+        camera_type_name = get_sensor_type(data_path.parent.parent)
         image_id = calc_image_id(data_path)
+        # Get the last 3 levels of the path that corresponds to <CAMERA_TYPE>/<RUN>/<IMAGE>
+        # This relative path will be set into the annotation file
+        filename = get_relative_path(data_path, parent_level=3)
         height, width, _ = categories_mat.shape
 
-        image_info = pycococreatortools.create_image_info(
-            image_id, data_path.name, (width, height)
-        )
+        image_info = pycococreatortools.create_image_info(image_id, str(filename), (width, height))
         image_info["video_id"] = camera_type_name
         image_info["frame_index"] = frame
         self._annotation_obj["images"].append(image_info)
@@ -84,16 +86,6 @@ class COCO(Annotator):
             self._annotation_obj["annotations"].append(annotation_info)
 
         self._annot_id = self._annot_id + 1
-        return True
-
-    def __post_annotation__(self, data_path: Path, num_annotations: int) -> bool:
-        if not super().__post_annotation__(data_path, num_annotations):
-            return False
-
-        if num_annotations == 0:
-            # remove image information since there were not annotations
-            self._annotation_obj["images"].pop()
-
         return True
 
     def store_annotations(self, filename: str) -> bool:

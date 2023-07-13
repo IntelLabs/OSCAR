@@ -24,7 +24,7 @@ class Format(abc.ABC):
         self.output = output
 
     @abc.abstractmethod
-    def process(self, mask: tuple, image_id: int, object_id: int) -> None:
+    def process(self, mask: tuple, image_id: str, object_id: int) -> None:
         pass
 
     @abc.abstractmethod
@@ -39,9 +39,9 @@ class PNG(Format):
         self._filename = ""
         self._mots_mat = None
 
-    def process(self, mask: tuple, image_id: int, object_id: int) -> None:
+    def process(self, mask: tuple, image_id: str, object_id: int) -> None:
         height, width = mask.binary_mask.shape
-        self._filename = f"{image_id:08}.png"
+        self._filename = f"{image_id}.png"
 
         if self._mots_mat is None:
             # Create image annotations with 16 bit png channel
@@ -82,7 +82,7 @@ class Text(Format):
             with open(self.output, "r+") as ann_file:
                 ann_file.truncate(0)
 
-    def process(self, mask: tuple, image_id: int, object_id: int) -> None:
+    def process(self, mask: tuple, image_id: str, object_id: int) -> None:
         height, width = mask.binary_mask.shape
         category_id = mask.category_info["id"]
 

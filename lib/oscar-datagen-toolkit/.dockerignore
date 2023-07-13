@@ -4,15 +4,17 @@
 # Allowing .git
 !.git/
 
-# Ensure all git files are present. Otherwise, armory will be "dirty" inside container, which will change the version
+# Ensure all git files are present. Otherwise, OSCAR will be "dirty" inside container, which will change the version
+!.instance_counter
+!.tmp_conf.yaml
 !.dockerignore
 !.flake8
 !.github/
 !.gitignore
-!.yamllint
 
 # ignore large directories
 data/
+logs/
 
 # ignore temp directories
 docker/build/

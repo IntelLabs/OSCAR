@@ -10,7 +10,7 @@ source "$SCRIPT_PATH/common.sh"
 
 DOC_STRING="Collect new data from a CARLA sim server."
 
-USAGE_STRING="Usage: $0 [OPTIONS] [CONFIGURATION-FILE]"
+USAGE_STRING="Usage: $0 [--scale=NUM] [CONFIGURATION-FILE]"
 
 OPTS=`getopt -o h --long help,scale: -n 'parse-options' -- "$@"`
 
@@ -24,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     -h | --help )
       echo "$DOC_STRING"
       echo "$USAGE_STRING"
+      docker compose run --no-deps --entrypoint="oscar_data_saver --help" collector
       exit 1
       ;;
     --scale )
@@ -44,15 +45,24 @@ if [ -z "$config" ]; then
 fi
 
 # ==============================================================================
-# -- Prepare config file -------------------------------------------------------
+# -- Prepare collection --------------------------------------------------------
 # ==============================================================================
+
+intance_counter=".instance_counter"
+if [[ ! -f $intance_counter ]]; then
+    touch "$intance_counter"
+    chmod 777 "$intance_counter"
+fi
+
+# reset counter
+echo "0" > "$intance_counter"
 
 if [[ ! -f $config ]]; then
     echo "$config does not exist."
     exit 1
 fi
 
-ln $config ./tmp_conf.yaml
+ln -f $config ./.tmp_conf.yaml
 
 # ==============================================================================
 # -- Run collection process ----------------------------------------------------
@@ -61,15 +71,13 @@ ln $config ./tmp_conf.yaml
 PROJECT_NAME="oscar"
 
 build_command() {
-    local tmp_uuid=$1
-    local host=$2
+    local host=$1
     local command="oscar_data_saver \
     --config-dir=/workspace \
-    --config-name=tmp_conf \
+    --config-name=.tmp_conf \
     context.client_params.host="$host" \
     context.client_params.port=$CARLA_PORT \
-    context.simulation_params.traffic_manager_port=$CARLA_TM_PORT \
-    hydra.run.dir=\"/opt/datagen-repo/data/$tmp_uuid\""
+    context.simulation_params.traffic_manager_port=$CARLA_TM_PORT"
     echo "$command"
 }
 
@@ -83,13 +91,11 @@ docker compose --project-name $PROJECT_NAME up -d --scale collector=$scale --sca
 echo "Run $scale data collection processes"
 
 for i in $(seq $scale); do
-    UUID=$(uuidgen)
     SERVER_ADDRESS="$PROJECT_NAME-carla-$i"
-    COLLECT_COMMAND=$(build_command $UUID $SERVER_ADDRESS)
+    COLLECT_COMMAND=$(build_command $SERVER_ADDRESS)
 
     echo "Collection command: $COLLECT_COMMAND"
     docker compose --project-name $PROJECT_NAME exec --index $i $options collector /bin/bash -c "$COLLECT_COMMAND"
-    echo "Stored data at $HOST_MOUNT_POINT/$UUID"
 done
 
 
@@ -118,5 +124,5 @@ if [[ "$scale" -gt 1 ]]; then
     done < <(docker compose --project-name $PROJECT_NAME events collector)
 fi
 
-rm tmp_conf.yaml
+rm .tmp_conf.yaml
 docker compose --project-name $PROJECT_NAME down

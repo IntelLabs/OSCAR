@@ -1,3 +1,7 @@
+# Copyright (c) 2023 Intel Corporation.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
 ARG OS_VER="0.9.13"
 FROM carlasim/carla:${OS_VER}
 

@@ -24,7 +24,8 @@ services:
       - /etc/group:/etc/group:ro
       - /etc/shadow:/etc/shadow:ro
       - ${HOME}:${HOME}
-      - ${HOST_MOUNT_POINT}:/opt/datagen-repo/data
+      - ${HOST_DATA_MOUNT_POINT}:/opt/datagen-repo/data
+      - ${HOST_LOG_MOUNT_POINT}:/opt/datagen-repo/logs
       - .:/workspace
     depends_on:
       - base
@@ -38,23 +39,26 @@ services:
 
   carla:
     env_file: .env
+    shm_size: 30GB
     build:
       context: .
       dockerfile: docker/Dockerfile-carla
       args:
         OS_VER: ${CARLA_VERSION}
     image: oscar/carla:${CARLA_VERSION}
-    command: /bin/bash -c '/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port=${CARLA_PORT} -quality-level=Epic'
+    command: /bin/bash -c '/home/carla/workspace/docker/launch_carla_server.sh -r -p ${CARLA_PORT}'
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost ${CARLA_PORT} || exit 1"]
       start_period: 2s
       interval: 1s
       timeout: 3s
       retries: 20
+    volumes:
+      - .:/home/carla/workspace
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]

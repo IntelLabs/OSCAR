@@ -19,6 +19,8 @@ from oscar_datagen_tools.annotation.annotators import Annotator
 from oscar_datagen_tools.annotation.annotators import Text as MOTSText
 from oscar_datagen_tools.annotation.utils import (
     CARLA_CATEGORIES,
+    CATEGORIES_KEY,
+    SENSORS_KEY,
     CategoriesHandler,
     verify_dataset_path,
 )
@@ -53,12 +55,20 @@ class AnnotatorController:
         return True
 
     def annotate(self) -> True:
-        for camera in self.dataset["cameras"]:
-            camera_id = camera["id"]
-            logger.info(f"Annotating camera {camera_id}")
-            self.annotator.annotate_sensor(
-                camera["sensors"]["instance_segmentation"], camera["sensors"][self.sensor]
-            )
+        if self.sensor not in self.dataset[SENSORS_KEY]:
+            logger.error(f"No data found for sensor: {self.sensor}")
+            return False
+
+        if CATEGORIES_KEY not in self.dataset[SENSORS_KEY]:
+            logger.error(f"No data found for sensor: {CATEGORIES_KEY}")
+            return False
+
+        runs = self.dataset[SENSORS_KEY][self.sensor].keys()
+        for run in runs:
+            logger.info(f"Annotating run {run}")
+            sensor_paths = self.dataset[SENSORS_KEY][self.sensor][run]
+            categories_paths = self.dataset[SENSORS_KEY][CATEGORIES_KEY][run]
+            self.annotator.annotate_sensor(categories_paths, sensor_paths)
 
         filename = self.dataset_path / self.output
         self.annotator.store_annotations(filename)

@@ -1,7 +1,7 @@
 # Copyright (c) 2023 Intel Corporation.
 #
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
+# SPDX-License-Identifier: BSD-3-Clause
+#
 
 ARG OS_VER="0.0.1"
 FROM oscar/base:${OS_VER}
@@ -31,3 +31,4 @@ RUN rm -rf /opt/datagen-repo/docker/build
 
 # Setup oscar user
 RUN mkdir -p /opt/datagen-repo/data && chmod -R 777 /opt/datagen-repo/data
+RUN mkdir -p /opt/datagen-repo/logs && chmod -R 777 /opt/datagen-repo/logs
