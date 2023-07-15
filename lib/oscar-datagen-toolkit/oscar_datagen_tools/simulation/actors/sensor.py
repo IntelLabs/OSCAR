@@ -325,6 +325,14 @@ class Camera(Actor, ISensor):
         self.transform = self.sensors[0].transform
 
     def save_to_disk(self, path: Path) -> None:
+        # check if the camera's sensors data are available
+        res = all(sensor.data is not None for sensor in self.sensors)
+        if not res:
+            logger.warning(
+                "Camera's sensors do not have data available. Data of frame won't be stored."
+            )
+            return
+
         # check if the camera sensors are at the same position
         res = all(
             sensor.get_transform() == self.sensors[0].get_transform() for sensor in self.sensors

@@ -81,7 +81,7 @@ def run_spawn(func: Callable[[Any], Any]) -> bool:
             try:
                 return func(*args)
             except RuntimeError as error:
-                logger.exception(error)
+                logger.debug(error)
                 logger.debug(
                     f"Spawn process failed with actor {instance} on attempt {i + 1} of {RETRY}"
                 )
