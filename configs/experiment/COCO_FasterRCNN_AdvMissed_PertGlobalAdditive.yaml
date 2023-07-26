@@ -8,7 +8,7 @@ defaults:
   - /attack@model.modules.input_adv_validation: [object_detection_adversary_additive, pgd]
   - /attack@model.modules.input_adv_test: [object_detection_adversary_additive, pgd]
   # Visualize x_adv in test.
-  - /attack/callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
+  - /callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
 
   # Override the gain function.
   - override /attack/gain@model.modules.input_adv_training.gain: rcnn_class_background
@@ -21,3 +21,22 @@ defaults:
   - override /attack/objective@model.modules.input_adv_test.objective: object_detection_missed
 
 task_name: "COCO_FasterRCNN_AdvMissed_PertGlobalAdditive"
+
+model:
+  training_sequence:
+    seq005: input_adv_training
+
+    seq010:
+      preprocessor: ["input_adv_training", "target"]
+
+  validation_sequence:
+    seq005: input_adv_validation
+
+    seq010:
+      preprocessor: ["input_adv_validation", "target"]
+
+  test_sequence:
+    seq005: input_adv_test
+
+    seq010:
+      preprocessor: ["input_adv_test", "target"]

@@ -1,18 +1,23 @@
 defaults:
-  - iterative_sgd
-  - perturber: batch
-  # Leave initializer, gradient_modifier and projector to another config file.
-  # - perturber/initializer: constant
-  # - perturber/gradient_modifier: sign
-  # - perturber/projector: linf_additive_range
-  # We do not visualize x_adv during training or validation, so only add it when it's needed.
-  # - callbacks: [progress_bar, image_visualizer]
+  - adversary
+  - composer: additive
+  - gain: modular_rcnn_training_loss
   - objective: zero_ap
-  - gain: rcnn_training_loss
-  - threat_model: batch_additive
+  - enforcer: default
+  - enforcer/constraints: [lp, pixel_range]
+#   # Leave optimization to another config file, so it's easier to compose attacks.
+#   - perturber: default
+#   - perturber/initializer: constant
+#   - perturber/projector: linf_additive_range
+#   - gradient_modifier: sign
+#   - /optimizer@optimizer: sgd
 
-# Leave it to another config file.
 # optimizer:
 #   lr: 55
 
 # max_iters: 5
+
+enforcer:
+  constraints:
+    lp:
+      eps: 2

@@ -1,6 +1,6 @@
 [project]
 name        = "oscar"
-version     = "3.0.0"
+version     = "7.0.0"
 description = ""
 authors     = [{name = "Cory Cornelius", email = "cory.cornelius@intel.com"}]
 license     = {file = "LICENSE"}
@@ -8,12 +8,14 @@ license     = {file = "LICENSE"}
 requires-python = ">=3.9,<3.10"
 
 dependencies = [
-    "armory-testbed[pytorch] == 0.16.2",
-    "mart @ git+https://www.github.com/IntelLabs/MART.git@v0.2.1",
+    "armory-testbed[pytorch] == 0.18.0",
+    "mart @ git+https://www.github.com/IntelLabs/MART.git@v0.5.2",
     "kornia == 0.6.5",
     "numpy == 1.23.5",
     "open3d == 0.16.0",
     "fire == 0.5.0",
+    "adversarial-robustness-toolbox @ git+https://github.com/Trusted-AI/adversarial-robustness-toolbox.git@5f039c0255212a1357b7ede63860d6dae4b4925f",
+    "score_sde_pytorch @ git+https://github.com/mariusarvinte/score_sde_pytorch.git",
 ]
 
 [project.urls]
@@ -29,5 +31,3 @@ include = ["oscar*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
-
-

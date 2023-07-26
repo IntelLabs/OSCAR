@@ -116,6 +116,8 @@ def _get_new_losses(
     else:
         labels_t = y_preprocessed  # type: ignore
 
+    if inputs_t[0].shape[0] != 3:
+        inputs_t = [ip.permute(2, 0, 1) for ip in inputs_t]
     output = self._model(inputs_t, labels_t)
 
     return output, inputs_t, image_tensor_list_grad

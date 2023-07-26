@@ -219,3 +219,34 @@ $(SCENARIOS)/carla_mot_adversarialpatch_ss.json: $(SCENARIOS)/carla_mot_adversar
 $(SCENARIOS)/carla_mot_adversarialpatch_ssfilter_vid_%.json: $(SCENARIOS)/carla_mot_adversarialpatch_ssfilter.json | $(SCENARIOS)/
 > cat $< | $(JQ) '.sysconfig.num_eval_batches = 1' \
          | $(JQ) '.dataset.index = [$*]' > $@
+
+################
+#Eval7
+################
+#Undefended
+$(SCENARIOS)/carla_mot_adversarialpatch_undefended.json: $(ARMORY_SCENARIOS)/eval7/carla_mot/carla_mot_adversarialpatch_undefended.json | $(SCENARIOS)/
+> cat $< | $(JQ) '.attack.kwargs.max_iter = 5' \
+         | $(JQ) '.attack.kwargs.batch_frame_size = 3' \
+         | $(JQ) '.model.model_kwargs.min_size = 960 ' \
+         | $(JQ) '.model.model_kwargs.max_size = 1280 ' \
+         | $(JQ) '.sysconfig.use_gpu = true' \
+	     | $(JQ) '.sysconfig.num_eval_batches = 20' \
+         | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG_OSCAR)"' > $@
+
+# Defended - Bgsub alone
+$(SCENARIOS)/INTL_mot_bgsub.json: $(SCENARIOS)/carla_mot_adversarialpatch_undefended.json
+> cat $< | $(JQ) '.defense = {}' \
+         | $(JQ) '.attack.kwargs.batch_frame_size = 20' \
+	     | $(JQ) '.attack.kwargs.max_iter = 5' \
+         | $(JQ) '.defense.type = "Preprocessor"' \
+     	 | $(JQ) '.defense.kwargs = {}' \
+         | $(JQ) '.defense.module = "oscar.defences.preprocessor.dynamic_background_subtraction"' \
+         | $(JQ) '.defense.name = "DynamicBackgroundSubtraction"' \
+         | $(JQ) '.defense.kwargs.orb_good_match_percent = 0.1' \
+         | $(JQ) '.defense.kwargs.orb_levels = 9' \
+         | $(JQ) '.defense.kwargs.orb_scale_factor = 1.25' \
+         | $(JQ) '.defense.kwargs.bg_sub_thre = 7/255' \
+	     | $(JQ) '.defense.kwargs.postfilter_ss = "false"' \
+	     | $(JQ) '.defense.kwargs.prefilter_ss = "false"' \
+         | $(JQ) '.sysconfig.docker_image = "intellabs/oscar:0.18.0"' \
+         | $(JQ) '.sysconfig.external_github_repo = ["IntelLabs/OSCAR@gard-eval7", "JonathonLuiten/TrackEval"]' > $@

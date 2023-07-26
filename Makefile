@@ -8,8 +8,8 @@ PYTHON = python3.9
 MODEL_ZOO = oscar/model_zoo
 POETRY = $(HOME)/.local/bin/poetry
 ARMORY = $(shell which armory)
-DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.16.2
-DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.16.2
+DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.18.0
+DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.18.0
 JQ = jq --indent 4 -r
 YQ = faq -f yaml
 GIT_SUBMODULES = lib/MARS/MARS/.git
@@ -79,7 +79,7 @@ $(DATASETS):
 # Python Targets
 #
 $(POETRY):
-> curl -sSL https://install.python-poetry.org | $(PYTHON) - --version 1.3.2 --force
+> curl -sSL https://install.python-poetry.org | $(PYTHON) - --version 1.5.1 --force
 
 .PHONY: poetry
 poetry: $(POETRY) ## Launch poetry with ARGS
@@ -89,9 +89,12 @@ lib/%/.git:
 > git submodule update --init `dirname $@`
 
 .venv: $(POETRY) $(GIT_SUBMODULES) pyproject.toml
-> $(POETRY) run pip install pip==22.3.1
+> $(POETRY) run pip install pip==23.2
 > PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring $(POETRY) install
-> $(POETRY) run pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+> touch $@
+
+.PHONY: python_deps
+python_deps: .venv ## Install python dependencies into virtual environment using poetry
 > $(POETRY) run pip install git+https://github.com/ifzhang/ByteTrack.git thop lap Cython
 > $(POETRY) run pip install cython-bbox
 > touch $@

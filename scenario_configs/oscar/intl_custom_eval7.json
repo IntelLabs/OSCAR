@@ -1,0 +1,79 @@
+{
+    "_description": "CARLA single modality object detection, contributed by MITRE Corporation",
+    "adhoc": null,
+    "attack": {
+        "knowledge": "white",
+        "kwargs": {
+            "batch_size": 1,
+            "learning_rate": 0.003,
+            "max_iter": 1000,
+            "optimizer": "pgd",
+            "targeted": false,
+            "verbose": true
+        },
+        "module": "armory.art_experimental.attacks.carla_obj_det_adversarial_patch",
+        "name": "CARLAAdversarialPatchPyTorch",
+        "use_label": true
+    },
+    "dataset": {
+        "batch_size": 1,
+        "eval_split": "dev",
+        "framework": "numpy",
+        "modality": "rgb",
+        "module": "armory.data.adversarial_datasets",
+        "name": "carla_over_obj_det_dev"
+    },
+    "defense": null,
+    "metric": {
+        "means": true,
+        "perturbation": "l0",
+        "record_metric_per_sample": false,
+        "task": [
+            "carla_od_AP_per_class",
+            "carla_od_disappearance_rate",
+            "carla_od_hallucinations_per_image",
+            "carla_od_misclassification_rate",
+            "carla_od_true_positive_rate",
+            "object_detection_mAP_tide"
+        ]
+    },
+    "model": {
+        "fit": false,
+        "fit_kwargs": {},
+        "model_kwargs": {
+			"use_mart": false,
+            "max_size": 1280,
+            "min_size": 960,
+            "box_detections_per_img": null,
+            "num_classes": 3
+        },
+        "module": "oscar.models.art_estimator",
+        "name": "get_art_model",
+        "weights_file": {
+			"detector_checkpoint": "carla_rgb_weights_eval7and8.pt",
+			"filter_checkpoint": "INTL_score_model_unimodal_eval7.pt"
+		},
+        "wrapper_kwargs": {
+			"filtered_detection_wrapper": {
+				"num_channels": 3,
+				"threshold": -3.6,
+				"method": "midpoint",
+				"step_size": 0.02
+			}
+		}
+    },
+    "scenario": {
+        "kwargs": {},
+        "module": "oscar.scenarios.intel_custom_carla_od",
+        "name": "CustomIntelCarlaObjectDetectionTask",
+        "export_batches": 20
+    },
+    "sysconfig": {
+        "docker_image": "intellabs/oscar:0.18.0",
+        "external_github_repo": "IntelLabs/OSCAR@gard-eval7",
+        "gpus": "all",
+        "output_dir": null,
+        "output_filename": null,
+        "use_gpu": true
+    }
+}

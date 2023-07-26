@@ -6,7 +6,7 @@ defaults:
   - override /attack@model.modules.input_adv_test: [object_detection_adversary_mask_overlay, mask_pgd]
 
   # Visualize x_adv in test.
-  - override /attack/callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
+  - override /callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
 
   - override /datamodule: [armory_carla_objdet, armory_addon_perturbable_mask_for_carla_objdet]
 

@@ -9,9 +9,28 @@ defaults:
   - /attack@model.modules.input_adv_test: [object_detection_adversary_mask_additive, pgd]
 
   # Visualize x_adv in test.
-  - /attack/callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
+  - /callbacks@model.modules.input_adv_test.callbacks: [progress_bar, image_visualizer]
 
   # Add perturbable_mask to target.
   - override /datamodule: [coco, coco_addon_background_mask]
 
 task_name: "COCO_FasterRCNN_AdvAP0_PertBgAdditive"
+
+model:
+  training_sequence:
+    seq005: input_adv_training
+
+    seq010:
+      preprocessor: ["input_adv_training", "target"]
+
+  validation_sequence:
+    seq005: input_adv_validation
+
+    seq010:
+      preprocessor: ["input_adv_validation", "target"]
+
+  test_sequence:
+    seq005: input_adv_test
+
+    seq010:
+      preprocessor: ["input_adv_test", "target"]

@@ -1,8 +1,10 @@
 defaults:
+  # We do not inherit from pgd.yaml because we cannot delete perturber.projector.eps.
+  - perturber: default
   - perturber/initializer: uniform
-  - perturber/gradient_modifier: sign
-  # We do not inherit pgd.yaml because we cannot delete perturber.projector.eps.
   - perturber/projector: mask_range
+  - gradient_modifier: sign
+  - /optimizer@optimizer: sgd
 
 # PGD10_eps255_step26
 optimizer:
