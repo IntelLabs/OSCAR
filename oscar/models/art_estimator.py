@@ -9,6 +9,7 @@ from typing import Optional
 
 import hydra
 import torch
+import torchvision
 from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn import MultimodalNaive
 from art.estimators.object_detection import PyTorchFasterRCNN
 from omegaconf import OmegaConf
@@ -20,6 +21,7 @@ from oscar.models.likelihood import LikelihoodEstimator
 logger = logging.getLogger(__name__)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+CUSTOM_ARMORY_KEYS = ["predicted_hallucinations", "boxes_raw", "labels_raw", "scores_raw"]
 
 
 class FilteredDetectionWrapper(torch.nn.Module):
@@ -67,11 +69,72 @@ class FilteredDetectionWrapper(torch.nn.Module):
 
             # Post-process detections
             filtered_preds = self.likelihood_model(images, preds)
+
+            # Store non-processed results for custom scenarios
+            for filtered_pred, pred in zip(filtered_preds, preds):
+                filtered_pred["boxes_raw"] = pred["boxes"].detach().clone()
+                filtered_pred["labels_raw"] = pred["labels"].detach().clone()
+                filtered_pred["scores_raw"] = pred["scores"].detach().clone()
         else:
             # Leave losses intact
             filtered_preds = preds
 
         return filtered_preds
+
+
+class FilteredPyTorchFasterRCNN(PyTorchFasterRCNN):
+    """Adds an option to output more prediction keys to the ART PyTorchFasterRCNN."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def predict(self, x, batch_size: int = 128, **kwargs):
+        # Set model to evaluation mode
+        self._model.eval()
+
+        # Apply preprocessing
+        x_preprocessed, _ = self._apply_preprocessing(x, y=None, fit=False)
+
+        # Convert samples into tensors
+        transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
+
+        if self.clip_values is not None:
+            norm_factor = self.clip_values[1]
+        else:
+            norm_factor = 1.0
+
+        if self.channels_first:
+            x_preprocessed = [torch.from_numpy(x_i / norm_factor).to(self.device) for x_i in x_preprocessed]
+        else:
+            x_preprocessed = [transform(x_i / norm_factor).to(self.device) for x_i in x_preprocessed]
+
+        predictions = []
+        # Run prediction
+        num_batch = (len(x_preprocessed) + batch_size - 1) // batch_size
+        for m in range(num_batch):
+            # Batch using indices
+            i_batch = x_preprocessed[m * batch_size : (m + 1) * batch_size]
+
+            with torch.no_grad():
+                predictions_x1y1x2y2 = self._model(i_batch)
+
+            for prediction_x1y1x2y2 in predictions_x1y1x2y2:
+                prediction = {}
+
+                prediction["boxes"] = prediction_x1y1x2y2["boxes"].detach().cpu().numpy()
+                prediction["labels"] = prediction_x1y1x2y2["labels"].detach().cpu().numpy()
+                prediction["scores"] = prediction_x1y1x2y2["scores"].detach().cpu().numpy()
+                if "masks" in prediction_x1y1x2y2:
+                    prediction["masks"] = prediction_x1y1x2y2["masks"].detach().cpu().numpy().squeeze()
+
+                # Pass-through for other custom outputs
+                for key in CUSTOM_ARMORY_KEYS:
+                    if key in prediction_x1y1x2y2:
+                        prediction[key] = prediction_x1y1x2y2[key].detach().cpu().numpy()
+
+                predictions.append(prediction)
+
+        return predictions
 
 
 class MARTModelWrapper(torch.nn.Module):
@@ -139,7 +202,7 @@ def get_art_model(
     model_kwargs: Optional[dict] = None,
     wrapper_kwargs: dict = {},
     weights_path: Optional[dict] = {},
-) -> PyTorchFasterRCNN:
+) -> FilteredPyTorchFasterRCNN:
     """The order of arguments are fixed due to the invocation in armory.utils.config_loading.load_model()."""
 
     # No need to run maybe_download_weights_from_s3() here as Armory takes care of the weights_path dict.
@@ -189,7 +252,7 @@ def get_art_model(
         rcnn_model = FilteredDetectionWrapper(rcnn_model, score_state_dict, ode_config)
         rcnn_model.to(DEVICE)
 
-    wrapped_model = PyTorchFasterRCNN(
+    wrapped_model = FilteredPyTorchFasterRCNN(
         rcnn_model,
         clip_values=(0.0, 1.0),
         channels_first=False,
@@ -198,7 +261,7 @@ def get_art_model(
     return wrapped_model
 
 
-def get_art_model_mm(model_kwargs: dict, wrapper_kwargs: dict, weights_path: Optional[str] = None) -> PyTorchFasterRCNN:
+def get_art_model_mm(model_kwargs: dict, wrapper_kwargs: dict, weights_path: Optional[str] = None) -> FilteredPyTorchFasterRCNN:
 
     use_mart = model_kwargs.pop("use_mart", False)
     assert not use_mart, "Use ART model (use_mart=False) for multimodal"
@@ -229,7 +292,7 @@ def get_art_model_mm(model_kwargs: dict, wrapper_kwargs: dict, weights_path: Opt
         model = FilteredDetectionWrapper(model, score_state_dict, ode_config)
         model.to(DEVICE)
 
-    wrapped_model = PyTorchFasterRCNN(
+    wrapped_model = FilteredPyTorchFasterRCNN(
         model,
         clip_values=(0.0, 1.0),
         channels_first=False,

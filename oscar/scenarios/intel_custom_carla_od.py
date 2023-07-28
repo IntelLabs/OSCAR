@@ -98,10 +98,10 @@ class CustomIntelCarlaObjectDetectionTask(CarlaObjectDetectionTask):
         # Returns boolean array, size of y_pred, where True indicates the box is a hallucination.
 
         # Initialize array for tracking
-        index = np.ones(len(y_pred["boxes"]))
+        index = np.ones(len(y_pred["boxes_raw"]))
 
         # Loop over pred boxes, mark which ones overlap with any GT boxes
-        for i, box in enumerate(y_pred["boxes"]):
+        for i, box in enumerate(y_pred["boxes_raw"]):
             overlaps = np.array([_intersection_over_union(box, b) > iou_threshold for b in y["boxes"]])
             if sum(overlaps) > 0:
                 index[i] = 0
@@ -137,23 +137,21 @@ class CustomIntelCarlaObjectDetectionTask(CarlaObjectDetectionTask):
 
         # Predict which boxes are hallucinations and filter them out
         assert len(y_pred_adv) == 1  # batch size is 1
-        # If the key is not there, assume there no post-processing
-        if "predicted_hallucinations" not in y_pred_adv[0].keys():
-            y_pred_adv[0]["predicted_hallucinations"] = np.zeros(shape=(len(y_pred_adv[0]["boxes"]),), dtype=bool)
-            log.warning("Didn''t find any 'predicted_hallucinations', using all False")
+        # If the detection key is not there, can't use this scenario
+        assert "predicted_hallucinations" in y_pred_adv[0].keys(), "Custom scenario requires detection-capable model!"
+
         predicted_hallucinations = y_pred_adv[0]["predicted_hallucinations"]
         y_pred_adv_filtered = [
             {
-                "boxes": y_["boxes"][~predicted_hallucinations],
-                "scores": y_["scores"][~predicted_hallucinations],
-                "labels": y_["labels"][~predicted_hallucinations],
+                "boxes": y_["boxes_raw"][~predicted_hallucinations],
+                "scores": y_["scores_raw"][~predicted_hallucinations],
+                "labels": y_["labels_raw"][~predicted_hallucinations],
             }
             for y_ in y_pred_adv
         ]
 
         # Get the true hallucinations
         true_hallucinations = self.hallucination_index_mask(y[0], y_pred_adv[0])
-
         self.probe.update(
             x_adv=x_adv,
             y_pred_adv=y_pred_adv,

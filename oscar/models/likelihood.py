@@ -232,16 +232,15 @@ class LikelihoodEstimator(torch.nn.Module):
             if len(filtered_pred["boxes"]) > 0:
                 for key in filtered_pred.keys():
                     filtered_pred[key] = torch.stack(filtered_pred[key], dim=0)
-                # Store hallucination decision for all objects in this image
-                filtered_pred["predicted_hallucinations"] = pred["predicted_hallucinations"].detach().clone()
             # Empty detection tensors
             else:
                 filtered_pred = {
                     "boxes": torch.zeros(size=(0, 4), device=image.device),
                     "labels": torch.zeros(size=(0,), device=image.device),
                     "scores": torch.zeros(size=(0,), device=image.device),
-                    "predicted_hallucinations": torch.zeros(size=(0,), device=image.device, dtype=torch.bool),
                 }
+            # Store hallucination decision for all objects in this image
+            filtered_pred["predicted_hallucinations"] = pred["predicted_hallucinations"].detach().clone()
             filtered_preds.append(filtered_pred)
 
         return filtered_preds
