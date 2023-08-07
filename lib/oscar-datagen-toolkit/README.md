@@ -33,7 +33,18 @@ pip install build/carla/PythonAPI/carla/dist/carla-0.9.13-cp39-cp39-linux_x86_64
 
 ## Getting started
 
-- With Docker:
+### Quickstart
+```
+# collect data
+./scripts/collect.sh <CONFIG-FILE>
+
+# annotate
+./scripts/annotate.sh <FORMAT> --dataset_parent_dir="/opt/datagen-repo/data/"
+```
+
+For more information about the command options see [Tools](#tools) section.
+
+### Install with Docker:
 
 1. Clone this repository to your local machine.
 2. Build the required Docker images:
@@ -51,7 +62,7 @@ docker compose build carla
 
 > **Note**: The `collect.sh` and `annotate.sh` scripts automatically verify the exitances of these Docker images and build them if necessary. You can use the above command if you want to rebuild the Docker images.
 
-- Manual installation
+### Install from source code
 
 1. Run the following command:
 
