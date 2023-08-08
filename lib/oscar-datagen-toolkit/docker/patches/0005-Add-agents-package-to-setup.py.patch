@@ -1,0 +1,26 @@
+From 1989095c8af1066dba99ac588c699bee57a0f292 Mon Sep 17 00:00:00 2001
+From: "Murillo Rojas, Luis" <luis.murillo.rojas@intel.com>
+Date: Wed, 19 Apr 2023 21:26:20 +0000
+Subject: [PATCH] Add agents package to setup.py
+
+---
+ PythonAPI/carla/setup.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/PythonAPI/carla/setup.py b/PythonAPI/carla/setup.py
+index dd5318e89..b0db2d951 100755
+--- a/PythonAPI/carla/setup.py
++++ b/PythonAPI/carla/setup.py
+@@ -163,8 +163,8 @@ with open("README.md") as f:
+ setup(
+     name='carla',
+     version='0.9.13',
+-    package_dir={'': 'source'},
+-    packages=['carla'],
++    package_dir={'': 'source', 'agents': 'agents', 'agents.navigation':'agents/navigation', 'agents.tools':'agents/tools'},
++    packages=['carla', 'agents', 'agents.navigation', 'agents.tools'],
+     ext_modules=get_libcarla_extensions(),
+     license=get_license(),
+     description='Python API for communicating with the CARLA server.',
+--
+2.34.1

@@ -1,0 +1,34 @@
+# Copyright (c) 2023 Intel Corporation.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
+ARG OS_VER="0.0.1"
+FROM oscar/base:${OS_VER}
+
+ARG CARLA_VERSION="0.9.13"
+
+# Copy source code
+WORKDIR /opt/datagen-repo
+COPY ./ /opt/datagen-repo
+
+# Build CARLA client
+WORKDIR /opt/datagen-repo/docker/build
+RUN git clone -b ${CARLA_VERSION} --depth 1 https://github.com/carla-simulator/carla && \
+    cp -r ../patches/* carla/ &&  cd carla/ && \
+    git apply *.patch && \
+    make PythonAPI.3
+
+# Install CARLA client
+RUN pip install carla/PythonAPI/carla/dist/carla-*.whl
+
+# Install OSCAR datagen tools
+WORKDIR /opt/datagen-repo
+RUN pip install .
+
+# Clean up
+RUN rm -rf /opt/datagen-repo/docker/build
+
+# Setup oscar user
+RUN mkdir -p /opt/datagen-repo/data && chmod -R 777 /opt/datagen-repo/data
+RUN mkdir -p /opt/datagen-repo/logs && chmod -R 777 /opt/datagen-repo/logs

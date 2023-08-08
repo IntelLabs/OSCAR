@@ -1,0 +1,3 @@
+# output directory, generated dynamically on each run
+run:
+  dir: ${paths.log_dir}

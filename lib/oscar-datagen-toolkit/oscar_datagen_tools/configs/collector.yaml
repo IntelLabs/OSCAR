@@ -1,0 +1,10 @@
+# @package _global_
+
+# specify here default simulation configuration
+defaults:
+  - context: default.yaml
+  - paths: default.yaml
+  - hydra: default.yaml
+  - simulation: null
+
+max_frames: ???

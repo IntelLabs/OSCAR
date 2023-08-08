@@ -1,0 +1,14 @@
+# Copyright (c) 2023 Intel Corporation.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+ARG OS_VER="0.9.13"
+FROM carlasim/carla:${OS_VER}
+
+USER root
+
+# CARLA base image does not have Netcat installed. This is needed
+# to verify if the CARLA server is up and running.
+RUN apt-get install -y netcat
+
+USER carla

@@ -1,0 +1,64 @@
+version: "3.9"
+services:
+  base:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-base
+    image: oscar/base:${DATAGEN_TOOLS_VERSION}
+
+  annotator:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-oscar-datagen
+      args:
+        CARLA_VERSION: ${CARLA_VERSION}
+        OS_VER: ${DATAGEN_TOOLS_VERSION}
+    image: oscar/datagen:${DATAGEN_TOOLS_VERSION}
+    user: ${U_ID}:${G_ID}
+    working_dir: ${HOME}
+    entrypoint: oscar_data_annotator
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      - /etc/shadow:/etc/shadow:ro
+      - ${HOME}:${HOME}
+      - ${HOST_DATA_MOUNT_POINT}:/opt/datagen-repo/data
+      - ${HOST_LOG_MOUNT_POINT}:/opt/datagen-repo/logs
+      - .:/workspace
+    depends_on:
+      - base
+
+  collector:
+    extends: annotator
+    entrypoint: tail -f /dev/null
+    depends_on:
+      carla:
+        condition: service_healthy
+
+  carla:
+    env_file: .env
+    shm_size: 30GB
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-carla
+      args:
+        OS_VER: ${CARLA_VERSION}
+    image: oscar/carla:${CARLA_VERSION}
+    command: /bin/bash -c '/home/carla/workspace/docker/launch_carla_server.sh -r -p ${CARLA_PORT}'
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost ${CARLA_PORT} || exit 1"]
+      start_period: 2s
+      interval: 1s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - .:/home/carla/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

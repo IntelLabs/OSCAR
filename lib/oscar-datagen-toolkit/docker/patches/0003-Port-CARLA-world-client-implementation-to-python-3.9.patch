@@ -1,0 +1,24 @@
+From a553cfd4d73ed5c4ee0da24c721c6d091f7ac189 Mon Sep 17 00:00:00 2001
+From: "Murillo Rojas, Luis" <luis.murillo.rojas@intel.com>
+Date: Wed, 12 Apr 2023 21:40:11 +0000
+Subject: [PATCH 3/4] Port CARLA world client implementation to python 3.9
+
+---
+ PythonAPI/carla/source/libcarla/World.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/PythonAPI/carla/source/libcarla/World.cpp b/PythonAPI/carla/source/libcarla/World.cpp
+index eb5a50bb4..2f4771f48 100644
+--- a/PythonAPI/carla/source/libcarla/World.cpp
++++ b/PythonAPI/carla/source/libcarla/World.cpp
+@@ -302,7 +302,7 @@ void export_world() {
+     .def("get_blueprint_library", CONST_CALL_WITHOUT_GIL(cc::World, GetBlueprintLibrary))
+     .def("get_vehicles_light_states", &GetVehiclesLightStates)
+     .def("get_map", CONST_CALL_WITHOUT_GIL(cc::World, GetMap))
+-    .def("get_random_location_from_navigation", CALL_RETURNING_OPTIONAL_WITHOUT_GIL(cc::World, GetRandomLocationFromNavigation))
++    .def("get_random_location_from_navigation", CALL_RETURNING_OPTIONAL(cc::World, GetRandomLocationFromNavigation))
+     .def("get_spectator", CONST_CALL_WITHOUT_GIL(cc::World, GetSpectator))
+     .def("get_settings", CONST_CALL_WITHOUT_GIL(cc::World, GetSettings))
+     .def("apply_settings", &ApplySettings, (arg("settings"), arg("seconds")=0.0))
+--
+2.34.1
