@@ -5,46 +5,114 @@
 #
 
 
+import json
+
 import numpy as np
 import torch
+from diffusers import DDIMScheduler, DDPMPipeline, DDPMScheduler
+from diffusers.models import UNet2DModel
 from score_sde_pytorch.models import ncsnpp  # noqa: Needed to register models
 from score_sde_pytorch.models import utils as mutils
 from score_sde_pytorch.models.ema import ExponentialMovingAverage
 from score_sde_pytorch.sde_lib import subVPSDE
+from torch.utils.checkpoint import checkpoint
 from torchdiffeq import odeint as odeint
 from torchdiffeq import odeint_adjoint as odeint_adjoint
 from tqdm import tqdm
 
 
+def get_preprocessing_pipe(unet_config_file, unet_weight_file, device):
+    # Create SD pipeline using minimalistic loading
+    scheduler = DDPMScheduler()  # Dummy with default parameters
+    with open(unet_config_file) as handle:
+        unet_config = json.load(handle)
+
+    unet = UNet2DModel(**unet_config)
+    # Convert self-attention state dictionary to recent `diffusers` version
+    # https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/modeling_utils.py#L875C27-L875C27
+    state_dict = torch.load(unet_weight_file, map_location=device)
+    unet._convert_deprecated_attention_blocks(state_dict)
+    unet.load_state_dict(state_dict)
+
+    pipe = DDPMPipeline(unet, scheduler)
+    pipe = pipe.to(device, torch_dtype=torch.bfloat16)
+
+    # Replace scheduler with DDIM
+    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+
+    return pipe
+
+
+# Differentiable multistep resampling with gradient checkpointing
+def multistep_resampling(image, pipe, desired_start, num_steps, num_channels, deterministic=False):
+    # [0, 1] -> [-1, 1] only for RGB channels
+    original_image = image
+    image = [2 * img[:3] - 1.0 for img in image]
+    assert len(image) == 1, "Batch processing not yet supported!"
+    image = image[0][None, ...]
+    orig_type = image.dtype
+    image = image.type(pipe.unet.dtype)
+    # Get RNG object
+    g = torch.Generator(device=image.device)
+
+    # Set step values
+    num_inference_steps = int(pipe.scheduler.config.num_train_timesteps // desired_start * num_steps)
+    pipe.scheduler.set_timesteps(num_inference_steps)
+
+    # Select actual inference timesteps
+    inference_timesteps = pipe.scheduler.timesteps[-(num_steps + 1) : -1]
+
+    # Add noise to data
+    if deterministic:
+        g.manual_seed(2023)
+    noise = torch.randn(image.shape, device=image.device, dtype=image.dtype, generator=g)
+    recovered_image = pipe.scheduler.add_noise(image, noise, inference_timesteps[0])
+
+    for idx, t in enumerate(inference_timesteps):
+        # Predict noise
+        model_output = pipe.unet(recovered_image, t).sample
+
+        # Reverse diffusion
+        recovered_image = pipe.scheduler.step(model_output, t, recovered_image).prev_sample
+
+    # [-1, 1] -> [0, 1], clamp and merge back with depth channels
+    recovered_image = (recovered_image / 2 + 0.5).clamp(0, 1).type(orig_type)
+    if num_channels == 4:
+        recovered_image = [torch.cat((rec_img, img[3:]), dim=0) for (rec_img, img) in zip(recovered_image, original_image)]
+
+    return [recovered_image[0]]
+
+
 def get_div_fn(fn):
     """Create the divergence function of `fn` using the Hutchinson-Skilling trace estimator."""
 
-    def div_fn(x, t, eps):
+    def div_fn(x, t, eps, is_differentiable):
         # Force gradients even when under no_grad context
         with torch.enable_grad():
             x.requires_grad_(True)
             fn_eps = torch.sum(fn(x, t) * eps)
-            grad_fn_eps = torch.autograd.grad(fn_eps, x)[0]
-        x.requires_grad_(False)
+            grad_fn_eps = torch.autograd.grad(fn_eps, x, create_graph=is_differentiable)[0]
         return torch.sum(grad_fn_eps * eps, dim=tuple(range(1, len(x.shape))))
 
     return div_fn
 
 
 class ODEFunc(torch.nn.Module):
-    def __init__(self, model, shape, drift_fn, div_fn, epsilon):
+    def __init__(self, model, shape, drift_fn, div_fn, epsilon, is_differentiable):
         super().__init__()
         self.shape = shape
         self.model = model
         self.drift_fn = drift_fn
         self.div_fn = div_fn
         self.epsilon = epsilon
+        self.is_differentiable = is_differentiable
 
     def forward(self, t, x):
         sample = torch.reshape(x[: -self.shape[0]], self.shape).type(torch.float32)
         vec_t = torch.ones(sample.shape[0], device=sample.device) * t
-        drift = self.drift_fn(self.model, sample, vec_t).reshape((-1,))
-        logp_grad = self.div_fn(self.model, sample, vec_t, self.epsilon).reshape((-1,))
+        # Checkpoint every drift / divergence wrapper calls
+        drift = checkpoint(self.drift_fn, self.model, sample, vec_t, use_reentrant=False).reshape((-1,))
+        logp_grad = checkpoint(self.div_fn, self.model, sample, vec_t, self.epsilon, self.is_differentiable, use_reentrant=False).reshape((-1,))
 
         return torch.concat([drift, logp_grad], dim=0)
 
@@ -59,10 +127,11 @@ class ODESolver(torch.nn.Module):
         rtol=1e-5,
         atol=1e-5,
         method="rk4",
-        adjoint_grads=True,
+        adjoint_grads=False,
         eps=1e-5,
         ode_step_size=0.01,
         epsilon=None,
+        is_differentiable=False,
         shape=None,
     ):
         super().__init__()
@@ -76,10 +145,11 @@ class ODESolver(torch.nn.Module):
         self.inverse_scaler = inverse_scaler
         self.ode_step_size = ode_step_size
         self.adjoint_grads = adjoint_grads
+        self.is_differentiable = is_differentiable
 
         # Instantiate trace wrapper around model
         # !!! This is the nn.Module that is being called repeatedly during inference
-        self.ode_func = ODEFunc(self.model, shape, self.drift_fn, self.div_fn, epsilon)
+        self.ode_func = ODEFunc(self.model, shape, self.drift_fn, self.div_fn, epsilon, self.is_differentiable)
 
     def drift_fn(self, model, x, t):
         score_fn = mutils.get_score_fn(self.sde, model, train=False, continuous=True)
@@ -87,8 +157,8 @@ class ODESolver(torch.nn.Module):
         rsde = self.sde.reverse(score_fn, probability_flow=True)
         return rsde.sde(x, t)[0]
 
-    def div_fn(self, model, x, t, noise):
-        return get_div_fn(lambda xx, tt: self.drift_fn(model, xx, tt))(x, t, noise)
+    def div_fn(self, model, x, t, noise, is_differentiable):
+        return get_div_fn(lambda xx, tt: self.drift_fn(model, xx, tt))(x, t, noise, is_differentiable)
 
     def forward(self, data):
         shape = data.shape
@@ -116,7 +186,7 @@ class ODESolver(torch.nn.Module):
 
 
 class LikelihoodEstimator(torch.nn.Module):
-    def __init__(self, state_dict, num_channels, threshold, device, patch_size=160, method="rk4", time_eps=1e-5, step_size=0.05):
+    def __init__(self, state_dict, num_channels, threshold, device, patch_size=160, method="rk4", time_eps=1e-5, step_size=0.05, is_differentiable=False):
         super().__init__()
 
         # Patch size during NLL evaluation
@@ -157,6 +227,7 @@ class LikelihoodEstimator(torch.nn.Module):
             eps=time_eps,
             ode_step_size=step_size,
             epsilon=self.ode_hs_epsilon,
+            is_differentiable=is_differentiable,
             shape=self.ode_hs_epsilon.shape,
         )
         self.register_module("likelihood_fn", likelihood_fn)
@@ -172,6 +243,7 @@ class LikelihoodEstimator(torch.nn.Module):
     def forward(self, images, preds):
         # Post-process detections sample-by-sample
         filtered_preds = []
+        evaluated_nlls = []
         for image_idx, (image, pred) in enumerate(zip(images, preds)):
             # Initialize predicted hallucination flag for each object
             pred["predicted_hallucinations"] = torch.zeros(len(pred["boxes"]), device=pred["boxes"].device, dtype=torch.bool)
@@ -184,7 +256,8 @@ class LikelihoodEstimator(torch.nn.Module):
             # Surviving objects
             filtered_pred = {"boxes": [], "labels": [], "scores": []}
             # Create a likelihood map to mark done patches in the image
-            likelihood_done_map = torch.zeros(len(pred["boxes"]), image.shape[-2], image.shape[-1], device=image.device)
+            likelihood_done_map = [torch.zeros(image.shape[-2], image.shape[-1], device=image.device)]  # Template map
+            object_nll = torch.zeros(len(pred["boxes"]), device=image.device)
 
             # For each detection in the sample
             for object_idx, box in tqdm(enumerate(pred["boxes"])):
@@ -196,23 +269,23 @@ class LikelihoodEstimator(torch.nn.Module):
                 w = x2 - x1
                 h = y2 - y1
 
+                # Adjust center if patch would overflow
+                cx = torch.minimum(torch.maximum(cx, self.half_size), image.shape[-1] - self.half_size)
+                cy = torch.minimum(torch.maximum(cy, self.half_size), image.shape[-2] - self.half_size)
+
                 # Check if object was already fully included in a previous patch
                 done_flag = torch.tensor(False, device=image.device)
                 if object_idx > 0:
-                    done_flag = torch.all(
-                        likelihood_done_map[:object_idx, cy - h // 2 : cy + h // 2, cx - w // 2 : cx + w // 2].reshape(object_idx, -1), dim=-1
-                    )
+                    # Stack likelihood maps ad-hoc
+                    stacked_maps = torch.stack(likelihood_done_map)
+                    done_flag = torch.all(stacked_maps[:, cy - h // 2 : cy + h // 2, cx - w // 2 : cx + w // 2].reshape(stacked_maps.shape[0], -1), dim=-1)
 
                 # If so, decide using NLL values from previous patches and majority vote
                 if torch.any(done_flag):
                     previous_idx = torch.where(done_flag)[0]
-                    previous_decisions = likelihood_done_map[previous_idx, cy, cx] > self.nll_threshold
+                    previous_decisions = stacked_maps[previous_idx, cy, cx] > self.nll_threshold
                     flag_anomaly = torch.sum(previous_decisions) >= (len(previous_decisions) // 2)
                 else:
-                    # Adjust center if patch would overflow
-                    cx = torch.minimum(torch.maximum(cx, self.half_size), image.shape[-1] - self.half_size)
-                    cy = torch.minimum(torch.maximum(cy, self.half_size), image.shape[-2] - self.half_size)
-
                     # Get patch, evaluate likelihood, and fill completed map
                     local_patch = image[None, ..., cy - self.half_size : cy + self.half_size, cx - self.half_size : cx + self.half_size]
 
@@ -220,7 +293,12 @@ class LikelihoodEstimator(torch.nn.Module):
                     flag_anomaly = nll_est > self.nll_threshold
 
                     # Mark as done only when actually evaluated
-                    likelihood_done_map[object_idx, cy - self.half_size : cy + self.half_size, cx - self.half_size : cx + self.half_size] = nll_est
+                    local_map = torch.zeros_like(likelihood_done_map[0])
+                    local_map[cy - self.half_size : cy + self.half_size, cx - self.half_size : cx + self.half_size] = nll_est.detach()
+                    likelihood_done_map.append(local_map)
+
+                    # Store evaluated NLL
+                    object_nll[object_idx] = nll_est
 
                 # Store hallucination decision for this object
                 pred["predicted_hallucinations"][object_idx] = flag_anomaly.item()
@@ -243,4 +321,7 @@ class LikelihoodEstimator(torch.nn.Module):
             filtered_pred["predicted_hallucinations"] = pred["predicted_hallucinations"].detach().clone()
             filtered_preds.append(filtered_pred)
 
-        return filtered_preds
+            # Store evaluated NLLs for all objects that were actually evaluated
+            evaluated_nlls.append(object_nll)
+
+        return filtered_preds, evaluated_nlls

@@ -5,17 +5,13 @@ description = ""
 authors     = [{name = "Cory Cornelius", email = "cory.cornelius@intel.com"}]
 license     = {file = "LICENSE"}
 
-requires-python = ">=3.9,<3.10"
+requires-python = ">=3.9,<3.10,!=3.9.7"
 
 dependencies = [
-    "armory-testbed[pytorch] == 0.18.0",
-    "mart @ git+https://www.github.com/IntelLabs/MART.git@v0.5.2",
-    "kornia == 0.6.5",
+    "armory-testbed[pytorch] == 0.19.1",
     "numpy == 1.23.5",
     "open3d == 0.16.0",
     "fire == 0.5.0",
-    "adversarial-robustness-toolbox @ git+https://github.com/Trusted-AI/adversarial-robustness-toolbox.git@5f039c0255212a1357b7ede63860d6dae4b4925f",
-    "score_sde_pytorch @ git+https://github.com/mariusarvinte/score_sde_pytorch.git",
 ]
 
 [project.urls]
@@ -23,7 +19,23 @@ Source = "https://github.com/IntelLabs/OSCAR"
 
 [project.optional-dependencies]
 developer = [
-    "gdown"
+    "mart @ git+https://www.github.com/IntelLabs/MART.git@v0.5.3",
+    "adversarial-robustness-toolbox == 1.16.0",
+    "gdown",
+    "diffusers == 0.20.0",
+    "accelerate == 0.21.0",
+]
+
+object_detection = [
+    "score_sde_pytorch @ git+https://github.com/mariusarvinte/score_sde_pytorch.git",
+]
+
+object_tracking = [
+    "kornia == 0.6.5",
+    "thop == 0.1.1",
+    "lap == 0.4.0",
+    "yolox @ git+https://github.com/ifzhang/ByteTrack.git",
+    "cython-bbox == 0.1.3",
 ]
 
 [tool.setuptools.packages.find]

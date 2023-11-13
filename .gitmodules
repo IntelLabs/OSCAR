@@ -1,6 +1,3 @@
 [submodule "lib/armory"]
 	path = lib/armory
 	url = https://github.com/twosixlabs/armory.git
-[submodule "lib/MARS/MARS"]
-	path = lib/MARS/MARS
-	url = https://github.com/yusong-tan/MARS

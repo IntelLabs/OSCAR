@@ -5,18 +5,18 @@
 #
 
 import logging
+import types
 from typing import Optional
 
-import hydra
 import torch
 import torchvision
 from armory.baseline_models.pytorch.carla_multimodality_object_detection_frcnn import MultimodalNaive
 from art.estimators.object_detection import PyTorchFasterRCNN
-from omegaconf import OmegaConf
+from torch.utils.checkpoint import checkpoint
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FasterRCNN
 
-from oscar.models.likelihood import LikelihoodEstimator
+from oscar.models.likelihood import LikelihoodEstimator, get_preprocessing_pipe, multistep_resampling
 
 logger = logging.getLogger(__name__)
 
@@ -27,59 +27,104 @@ CUSTOM_ARMORY_KEYS = ["predicted_hallucinations", "boxes_raw", "labels_raw", "sc
 class FilteredDetectionWrapper(torch.nn.Module):
     """Wrap a torchvision model and a LikelihoodEstimator like a torchvision model."""
 
-    def __init__(self, object_detector, state_dict, ode_config) -> None:
+    def __init__(self, object_detector, state_dict, ode_config, preproc_config, num_channels) -> None:
         super().__init__()
 
         self.object_detector = object_detector
-        self.num_channels = ode_config["num_channels"]
+        self.num_channels = num_channels
+
+        # Instantiate preprocessing pipeline
+        self.preproc_fn = lambda images, *args: images
+        self.preprocess_pipe, self.init_preproc_t, self.num_preproc_steps, self.deterministic_preproc = None, None, None, None
+        if preproc_config is not None:
+            self.preproc_fn = multistep_resampling
+            self.preprocess_pipe = get_preprocessing_pipe(preproc_config["unet_config"], preproc_config["unet_weights"], DEVICE)
+            self.init_preproc_t = preproc_config["init_t"]
+            self.num_preproc_steps = preproc_config["num_steps"]
+            self.deterministic_preproc = preproc_config.pop("deterministic", False)
 
         # Instantiate likelihood model
-        self.likelihood_model = LikelihoodEstimator(
-            state_dict,
-            num_channels=self.num_channels,
-            threshold=ode_config["threshold"],
-            method=ode_config["method"],
-            step_size=ode_config["step_size"],
-            device=DEVICE,
-        )  # DEVICE needed explicitly for fixed PRNG
-        self.likelihood_model.to(DEVICE)
+        self.likelihood_model = lambda images, preds: (preds, torch.zeros(1, device=DEVICE))
+        self.differentiable_ode = False
+        if ode_config is not None:
+            self.likelihood_model = LikelihoodEstimator(
+                state_dict,
+                num_channels=self.num_channels,
+                threshold=ode_config["threshold"],
+                method=ode_config["method"],
+                step_size=ode_config["step_size"],
+                is_differentiable=ode_config["is_differentiable"],
+                device=DEVICE,
+            )  # DEVICE needed explicitly for fixed PRNG
+            self.likelihood_model.to(DEVICE)
+            self.differentiable_ode = ode_config["is_differentiable"]
 
     def forward(self, images, targets=None):
-        # Get detections
-        preds = self.object_detector(images, targets)
+        # Preprocess samples
+        preproc_images = checkpoint(
+            self.preproc_fn,
+            images,
+            self.preprocess_pipe,
+            self.init_preproc_t,
+            self.num_preproc_steps,
+            self.num_channels,
+            self.deterministic_preproc,
+            use_reentrant=False,
+        )
 
-        if targets is None:
-            # RGB
-            if self.num_channels == 3:
-                # Armory's inputs are between [0, 1] but score model wants [-1, 1]
-                images = [inp * 2 - 1 for inp in images]
-            # RGB + D
-            elif self.num_channels == 4:
-                # Armory's RGB inputs are between [0, 1] but score model wants [-1, 1]
-                rgbs = [inp[:3] * 2 - 1 for inp in images]
+        # Get detections and losses
+        losses, preds = self.object_detector(preproc_images, targets)
 
-                # Convert depth to linear
-                depths = [inp[3] * 255 + inp[4] * 255 * 256 + inp[5] * 255 * 256 * 256 for inp in images]
-                depths = [depth * 1000.0 / (256**3 - 1) for depth in depths]
-                # Convert to log-scale (zero-guarded)
-                depths = [torch.log2(1 + depth) / 2 - 2.5 for depth in depths]
+        # In training mode, get predictions separately by temporarily forcing evaluation mode
+        # The reason is that in "training mode", predictions are empty, e.g. https://github.com/pytorch/vision/blob/main/torchvision/models/detection/roi_heads.py#L811
+        if targets is not None and self.differentiable_ode:
+            self.object_detector.train(False)
+            with torch.no_grad():
+                _, preds = self.object_detector(preproc_images, None)
+            self.object_detector.train(True)
 
-                # Concatenate channels
-                images = [torch.cat((rgb, depth[None, ...])) for (rgb, depth) in zip(rgbs, depths)]
+        # Scale RGB samples
+        if self.num_channels == 3:
+            # Armory's inputs are between [0, 1] but score model wants [-1, 1]
+            images = [inp * 2 - 1 for inp in images]
+        # Scale RGB + D samples
+        elif self.num_channels == 4:
+            # Armory's RGB inputs are between [0, 1] but score model wants [-1, 1]
+            rgbs = [inp[:3] * 2 - 1 for inp in images]
 
-            # Post-process detections
-            filtered_preds = self.likelihood_model(images, preds)
+            # Convert depth to linear
+            depths = [inp[3] * 255 + inp[4] * 255 * 256 + inp[5] * 255 * 256 * 256 for inp in images]
+            depths = [depth * 1000.0 / (256**3 - 1) for depth in depths]
+            # Convert to log-scale (zero-guarded)
+            depths = [torch.log2(1 + depth) / 2 - 2.5 for depth in depths]
+
+            # Concatenate channels
+            images = [torch.cat((rgb, depth[None, ...])) for (rgb, depth) in zip(rgbs, depths)]
+
+        # Post-process detections using unaltered images in two cases:
+        # 1. Whenever Armory runs plain inference (training = False)
+        # 2. And whenever we want to backpropagate through post-processing
+        if targets is None or self.differentiable_ode:
+            filtered_preds, evaluated_nlls = self.likelihood_model(images, preds)
 
             # Store non-processed results for custom scenarios
             for filtered_pred, pred in zip(filtered_preds, preds):
                 filtered_pred["boxes_raw"] = pred["boxes"].detach().clone()
                 filtered_pred["labels_raw"] = pred["labels"].detach().clone()
                 filtered_pred["scores_raw"] = pred["scores"].detach().clone()
-        else:
-            # Leave losses intact
-            filtered_preds = preds
 
-        return filtered_preds
+            # Add "nll_loss" to output dictionary for each sample
+            losses["loss_nll"] = torch.sum(evaluated_nlls[0])
+
+        else:
+            # Don't use post-processing in the adversarial optimization loop
+            filtered_preds = losses
+
+        # Restore torchvision/armory output convention
+        if targets is None:
+            return filtered_preds
+        else:
+            return losses
 
 
 class FilteredPyTorchFasterRCNN(PyTorchFasterRCNN):
@@ -206,30 +251,11 @@ def get_art_model(
     """The order of arguments are fixed due to the invocation in armory.utils.config_loading.load_model()."""
 
     # No need to run maybe_download_weights_from_s3() here as Armory takes care of the weights_path dict.
-
     use_mart = model_kwargs.pop("use_mart", False)
     if use_mart:
-        # Load the model architecture.
-        config_yaml_path = weights_path["detector_yaml"]
-        model_config = OmegaConf.load(config_yaml_path)
-        model = hydra.utils.instantiate(model_config)
-
-        # Load checkpoint/weights.
-        checkpoint_path = weights_path["detector_checkpoint"]
-        state_dict = torch.load(checkpoint_path, map_location=DEVICE)
-        if "state_dict" in state_dict:
-            state_dict = state_dict["state_dict"]
-
-        # model.modules.input_adv_training may contain unwanted parameters after we remove adversarial training.
-        # FIXME: We had better fix the weight file and use strict loading, otherwise it may silence other errors.
-        model.load_state_dict(state_dict, strict=False)
-
-        # Wrap the MART model as a torchvision model.
-        rcnn_model = MARTModelWrapper(model, **model_kwargs)
-        rcnn_model.to(DEVICE)
-
+        assert False, "'use_mart' flag is not supported for Eval8 submission"
     else:
-        # Use ART model
+        # Use Torchvision model
         rcnn_model = fasterrcnn_resnet50_fpn(**model_kwargs)
         rcnn_model.to(DEVICE)
 
@@ -242,14 +268,30 @@ def get_art_model(
         )
         rcnn_model.load_state_dict(checkpoint)
 
-    ode_config = wrapper_kwargs.pop("filtered_detection_wrapper", None)
-    if ode_config is not None:
-        # Load checkpoint/weights for score model.
-        checkpoint_path = weights_path["filter_checkpoint"]
-        score_state_dict = torch.load(checkpoint_path, map_location=DEVICE)
+        # Patch forward method to always return (losses, detections)
+        def eager_outputs(self, losses, detections):
+            return losses, detections
 
-        # Wrap model with post-processing.
-        rcnn_model = FilteredDetectionWrapper(rcnn_model, score_state_dict, ode_config)
+        rcnn_model.eager_outputs = types.MethodType(eager_outputs, rcnn_model)
+
+        preproc_config = wrapper_kwargs.pop("preprocessing_wrapper", None)
+        if preproc_config is not None:
+            preproc_config["unet_config"] = weights_path["preproc_unet_config"]
+            preproc_config["unet_weights"] = weights_path["preproc_unet_weights"]
+
+        ode_config = wrapper_kwargs.pop("filtered_detection_wrapper", None)
+        score_state_dict = None
+        if ode_config is not None:
+            # Load checkpoint/weights for score model.
+            checkpoint_path = weights_path["filter_checkpoint"]
+            score_state_dict = torch.load(checkpoint_path, map_location=DEVICE)
+
+            # Determine whether we need to backpropagate through ODE solver or not
+            used_losses = wrapper_kwargs.get("attack_losses", [])
+            ode_config["is_differentiable"] = "loss_nll" in used_losses
+
+        # Wrap model with pre- and post-processing.
+        rcnn_model = FilteredDetectionWrapper(rcnn_model, score_state_dict, ode_config, preproc_config, num_channels=3)
         rcnn_model.to(DEVICE)
 
     wrapped_model = FilteredPyTorchFasterRCNN(
@@ -264,32 +306,66 @@ def get_art_model(
 def get_art_model_mm(model_kwargs: dict, wrapper_kwargs: dict, weights_path: Optional[str] = None) -> FilteredPyTorchFasterRCNN:
 
     use_mart = model_kwargs.pop("use_mart", False)
-    assert not use_mart, "Use ART model (use_mart=False) for multimodal"
+    if use_mart:
+        assert False, "'use_mart' flag is not supported for Eval8 submission"
 
-    num_classes = model_kwargs.pop("num_classes", 3)
-    frcnn_kwargs = {arg: model_kwargs.pop(arg) for arg in ["min_size", "max_size", "box_detections_per_img"] if arg in model_kwargs}
+    else:
+        num_classes = model_kwargs.pop("num_classes", 3)
+        frcnn_kwargs = model_kwargs.pop("frcnn_kwargs", {})
+        frcnn_kwargs = {
+            arg: model_kwargs.pop(arg)
+            for arg in [
+                "min_size",
+                "max_size",
+                "box_detections_per_img",
+                "box_score_thresh",
+                "box_detections_per_img",
+                "rpn_score_thresh",
+                "rpn_pre_nms_top_n_train",
+                "rpn_pre_nms_top_n_test",
+                "rpn_post_nms_top_n_train",
+                "rpn_post_nms_top_n_test",
+            ]
+            if arg in model_kwargs
+        }
 
-    backbone = MultimodalNaive(**model_kwargs)
-    model = FasterRCNN(
-        backbone,
-        num_classes=num_classes,
-        image_mean=[0.485, 0.456, 0.406, 0.0, 0.0, 0.0],
-        image_std=[0.229, 0.224, 0.225, 1.0, 1.0, 1.0],
-        **frcnn_kwargs,
-    )
-    model.to(DEVICE)
+        backbone = MultimodalNaive(**model_kwargs)
+        model = FasterRCNN(
+            backbone,
+            num_classes=num_classes,
+            image_mean=[0.485, 0.456, 0.406, 0.0, 0.0, 0.0],
+            image_std=[0.229, 0.224, 0.225, 1.0, 1.0, 1.0],
+            **frcnn_kwargs,
+        )
+        model.to(DEVICE)
 
-    checkpoint = torch.load(weights_path["detector_checkpoint"], map_location=DEVICE)
-    model.load_state_dict(checkpoint)
+        checkpoint = torch.load(weights_path["detector_checkpoint"], map_location=DEVICE)
+        model.load_state_dict(checkpoint)
 
-    ode_config = wrapper_kwargs.pop("filtered_detection_wrapper", None)
-    if ode_config is not None:
-        # Load checkpoint/weights for score model.
-        checkpoint_path = weights_path["filter_checkpoint"]
-        score_state_dict = torch.load(checkpoint_path, map_location=DEVICE)
+        # Patch forward method to always return (losses, detections)
+        def eager_outputs(self, losses, detections):
+            return losses, detections
+
+        model.eager_outputs = types.MethodType(eager_outputs, model)
+
+        preproc_config = wrapper_kwargs.pop("preprocessing_wrapper", None)
+        if preproc_config is not None:
+            preproc_config["unet_config"] = weights_path["preproc_unet_config"]
+            preproc_config["unet_weights"] = weights_path["preproc_unet_weights"]
+
+        ode_config = wrapper_kwargs.pop("filtered_detection_wrapper", None)
+        score_state_dict = None
+        if ode_config is not None:
+            # Load checkpoint/weights for score model.
+            checkpoint_path = weights_path["filter_checkpoint"]
+            score_state_dict = torch.load(checkpoint_path, map_location=DEVICE)
+
+            # Determine whether we need to backpropagate through ODE solver or not
+            used_losses = wrapper_kwargs.get("attack_losses", [])
+            ode_config["is_differentiable"] = "loss_nll" in used_losses
 
         # Wrap model with post-processing.
-        model = FilteredDetectionWrapper(model, score_state_dict, ode_config)
+        model = FilteredDetectionWrapper(model, score_state_dict, ode_config, preproc_config, num_channels=4)
         model.to(DEVICE)
 
     wrapped_model = FilteredPyTorchFasterRCNN(

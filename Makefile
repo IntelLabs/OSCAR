@@ -4,20 +4,19 @@ DOCKER ?= docker
 ARMORY_CONFIG ?= $(HOME)/.armory/config.json
 
 # Don't change these
-PYTHON = python3.9
+PYTHON = .venv/bin/python
 MODEL_ZOO = oscar/model_zoo
-POETRY = $(HOME)/.local/bin/poetry
 ARMORY = $(shell which armory)
-DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.18.0
-DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.18.0
+DOCKER_IMAGE_TAG_OSCAR = intellabs/oscar:0.19.1
+DOCKER_IMAGE_TAG_ARMORY = twosixarmory/armory:0.19.1
 JQ = jq --indent 4 -r
 YQ = faq -f yaml
-GIT_SUBMODULES = lib/MARS/MARS/.git
+GIT_SUBMODULES = lib/armory/.git
 MAKEFILE_DIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ARMORY_SCENARIOS = scenario_configs
 SCENARIOS = $(ARMORY_SCENARIOS)/oscar
 RESULTS = results
-MART = $(POETRY) run $(PYTHON) -m mart $(ARGS)
+MART = $(PYTHON) -m mart $(ARGS)
 
 BLACK := $(shell tput -Txterm setaf 0)
 RED := $(shell tput -Txterm setaf 1)
@@ -78,36 +77,24 @@ $(DATASETS):
 #
 # Python Targets
 #
-$(POETRY):
-> curl -sSL https://install.python-poetry.org | $(PYTHON) - --version 1.5.1 --force
-
-.PHONY: poetry
-poetry: $(POETRY) ## Launch poetry with ARGS
-> $(POETRY) $(ARGS)
-
 lib/%/.git:
 > git submodule update --init `dirname $@`
 
-.venv: $(POETRY) $(GIT_SUBMODULES) pyproject.toml
-> $(POETRY) run pip install pip==23.2
-> PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring $(POETRY) install
+.venv: $(GIT_SUBMODULES) pyproject.toml
+> python3.9 -m venv .venv
+> $(PYTHON) -m pip install pip==23.2
+> $(PYTHON) -m pip install -e .
 > touch $@
 
 .PHONY: python_deps
-python_deps: .venv ## Install python dependencies into virtual environment using poetry
-> $(POETRY) run pip install git+https://github.com/ifzhang/ByteTrack.git thop lap Cython
-> $(POETRY) run pip install cython-bbox
-> touch $@
+python_deps: .venv ## Install python dependencies into virtual environment
 > @echo "$(YELLOW)Make sure to configure armory if you haven't already:$(RESET)"
 > @echo "    output_dir: $(GREEN)$(MAKEFILE_DIR)$(RESULTS)$(RESET)"
 > @echo "    saved_model_dir: $(GREEN)$(MAKEFILE_DIR)$(MODEL_ZOO)$(RESET)"
 
-.PHONY: python_deps
-python_deps: .venv ## Install python dependencies into virtual environment using poetry
-
 .PHONY: test
 test: .venv
-> $(POETRY) run pytest test
+> $(PYTHON) -m pytest test
 
 #
 # Docker Targets
@@ -142,28 +129,28 @@ $(ARMORY_SCENARIOS)/%.json: lib/armory/scenario_configs/%.json
 > cat $< | $(JQ) '.sysconfig.docker_image = "$(DOCKER_IMAGE_TAG_ARMORY)"' > $@
 
 $(RESULTS)/%.json.armory_run: $(RESULTS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*.armory_run\"" $< | $(POETRY) run armory run --no-docker - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*.armory_run\"" $< | $(PYTHON) -m armory run --no-docker - $(ARGS)
 
 $(RESULTS)/%.json.armory_check: $(RESULTS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*.armory_check\"" $< | $(POETRY) run armory run --no-docker --check - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*.armory_check\"" $< | $(PYTHON) -m armory run --no-docker --check - $(ARGS)
 
 $(RESULTS)/%.json.armory_docker_run: $(RESULTS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*.armory_docker_run\"" $< | $(POETRY) run armory run - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*.armory_docker_run\"" $< | $(PYTHON) -m armory run - $(ARGS)
 
 $(RESULTS)/%.json.armory_docker_check: $(RESULTS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*.armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*.armory_docker_check\"" $< | $(PYTHON) -m armory run --check - $(ARGS)
 
 $(SCENARIOS)/%.json.armory_run: $(SCENARIOS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*.armory_run\"" $< | $(POETRY) run armory run --no-docker - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*.armory_run\"" $< | $(PYTHON) -m armory run --no-docker - $(ARGS)
 
 $(SCENARIOS)/%.json.armory_check: $(SCENARIOS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*./armory_check\"" $< | $(POETRY) run armory run --no-docker --check - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*./armory_check\"" $< | $(PYTHON) -m armory run --no-docker --check - $(ARGS)
 
 $(SCENARIOS)/%.json.armory_docker_run: $(SCENARIOS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*./armory_docker_run\"" $< | $(POETRY) run armory run - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*./armory_docker_run\"" $< | $(PYTHON) -m armory run - $(ARGS)
 
 $(SCENARIOS)/%.json.armory_docker_check: $(SCENARIOS)/%.json | .venv
-> $(JQ) ".sysconfig.output_dir = \"$*./armory_docker_check\"" $< | $(POETRY) run armory run --check - $(ARGS)
+> $(JQ) ".sysconfig.output_dir = \"$*./armory_docker_check\"" $< | $(PYTHON) -m armory run --check - $(ARGS)
 
 
 
@@ -202,7 +189,7 @@ $(PRECOMPUTED_DATA_DIR)/preprocessed.%.test.scenario.json: $(SCENARIOS)/%.json |
 
 .DELETE_ON_ERROR: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5
 $(PRECOMPUTED_DATA_DIR)/preprocessed.%.h5: $(PRECOMPUTED_DATA_DIR)/preprocessed.%.scenario.json
-> $(POETRY) run $(PYTHON) -m oscar.data.preprocess_armory_data $< $@
+> $(PYTHON) -m oscar.data.preprocess_armory_data $< $@
 
 .PHONY: preprocessed.phony
 preprocessed.%.train preprocessed.%.test: preprocessed.phony # phony by proxy
