@@ -16,6 +16,9 @@
 data/
 logs/
 
+# allow textures directory
+!data/textures
+
 # ignore temp directories
 docker/build/
 

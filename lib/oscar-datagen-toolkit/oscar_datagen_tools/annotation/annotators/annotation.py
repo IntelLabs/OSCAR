@@ -28,8 +28,10 @@ TOLERANCE = 2
 
 
 class COCO(Annotator):
-    def __init__(self, interval: int, categories_handler: CategoriesHandler) -> None:
-        super().__init__(interval, categories_handler)
+    def __init__(
+        self, interval: int, categories_handler: CategoriesHandler, sensor_type: str
+    ) -> None:
+        super().__init__(interval, categories_handler, sensor_type)
 
         self._annot_id = 1
 
@@ -46,9 +48,9 @@ class COCO(Annotator):
         # The camera type is expected to be in the path's second parent: <CAMERA_TYPE>/<RUN>/<IMAGE>
         camera_type_name = get_sensor_type(data_path.parent.parent)
         image_id = calc_image_id(data_path)
-        # Get the last 3 levels of the path that corresponds to <CAMERA_TYPE>/<RUN>/<IMAGE>
+        # Get the last 2 levels of the path that corresponds to <RUN>/<IMAGE>
         # This relative path will be set into the annotation file
-        filename = get_relative_path(data_path, parent_level=3)
+        filename = get_relative_path(data_path, parent_level=2)
         height, width, _ = categories_mat.shape
 
         image_info = pycococreatortools.create_image_info(image_id, str(filename), (width, height))
@@ -95,7 +97,7 @@ class COCO(Annotator):
 
         # re-init class to clean up it's attributes and leave the
         # class ready to use in another annotation process.
-        self.__init__(self.interval, self.categories_handler)
+        self.__init__(self.interval, self.categories_handler, self.sensor_type)
 
         return True
 
@@ -105,9 +107,13 @@ OBJECT_SCALE_FACTOR = 1000
 
 class MOTS(Annotator):
     def __init__(
-        self, interval: int, categories_handler: CategoriesHandler, format: Format
+        self,
+        interval: int,
+        categories_handler: CategoriesHandler,
+        sensor_type: str,
+        format: Format,
     ) -> None:
-        super().__init__(interval, categories_handler)
+        super().__init__(interval, categories_handler, sensor_type)
 
         self.format = format
 
@@ -146,6 +152,6 @@ class MOTS(Annotator):
 
         # re-init class to clean up it's attributes and leave the
         # class ready to use in another annotation process.
-        self.__init__(self.interval, self.categories_handler, self.format)
+        self.__init__(self.interval, self.categories_handler, self.sensor_type, self.format)
 
         return True

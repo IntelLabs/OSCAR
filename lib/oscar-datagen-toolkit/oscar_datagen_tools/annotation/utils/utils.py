@@ -6,12 +6,14 @@
 
 import glob
 import hashlib
+import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import coloredlogs
+import numpy as np
 
 from oscar_datagen_tools.common_utils import (
     get_camera_id,
@@ -21,7 +23,12 @@ from oscar_datagen_tools.common_utils import (
 )
 
 __all__ = [
+    "build_projection_matrix",
     "calc_image_id",
+    "filename_decode",
+    "get_image_point",
+    "load_dynamic_metadata",
+    "load_sensors_static_metadata",
     "verify_dataset_path",
     "get_relative_path",
     "SENSORS_KEY",
@@ -125,3 +132,122 @@ def get_relative_path(path: Path, parent_level: int) -> Path:
     """
     path_parents = list(path.parents)[:parent_level]
     return path.relative_to(*path_parents)
+
+
+def filename_decode(name: str) -> Tuple[str, str]:
+    """Decode the image filename to extract the camera ID and the frame number. The expected
+    filename format is the following: route<CAMERA_ID>_<ELEVATION>z_<ANGLE>deg.0000000n.
+
+    Parameters
+    ----------
+    name : str
+        Image filename.
+    Returns
+    -------
+    (camera_id, frame_num) : Tuple[str, str]
+    """
+    name_substring = name.split("_")
+
+    # get the camera id
+    assert "route" in name_substring[0]
+    camera_id = name_substring[0]
+    camera_id = camera_id.replace("route", "")
+
+    # get frame number
+    frame = name_substring[-1].split(".")
+    frame = frame[-2]
+
+    return camera_id, frame
+
+
+def load_sensors_static_metadata(path: Path, sensor_type: str, camera_id: str) -> dict:
+    """Load the static metadata for an specific camera and sensor type.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the static metadata.
+    sensor_type : str
+        Sensor type (rgb, depth, ...)
+    camera_id:
+        Camera identifier.
+    Returns
+    -------
+    sensor_metadata : dict
+    """
+    sensor = None
+    with open(path) as metadata_file:
+        data = json.load(metadata_file)
+        sensors = data["cameras"][camera_id]["sensors"]
+
+        for key in sensors.keys():
+            if sensor_type in sensors[key]["bp_type"]:
+                sensor = sensors[key]
+                break
+
+    return sensor
+
+
+def load_dynamic_metadata(path: Path, sensor_type: str, camera_id: str) -> dict:
+    """Load the dynamic metadata for an specific camera and sensor type.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the static metadata.
+    sensor_type : str
+        Sensor type (rgb, depth, ...)
+    camera_id:
+        Camera identifier.
+    Returns
+    -------
+    metadata : dict
+    """
+    metadata = {}
+
+    with open(path) as metadata_file:
+        data = json.load(metadata_file)
+        sensors = data["cameras"][camera_id]["sensors"]
+
+        for key in sensors.keys():
+            if sensor_type in sensors[key]["type"]:
+                sensor = sensors[key]
+                metadata["sensor"] = sensor
+                break
+
+        metadata["patches"] = data["patches"]
+
+    return metadata
+
+
+def build_projection_matrix(w, h, fov):
+    """Code taken from: https://carla.readthedocs.io/en/latest/tuto_G_bounding_boxes/"""
+    focal = w / (2.0 * np.tan(fov * np.pi / 360.0))
+    K = np.identity(3)
+    K[0, 0] = K[1, 1] = focal
+    K[0, 2] = w / 2.0
+    K[1, 2] = h / 2.0
+    return K
+
+
+def get_image_point(loc, K, w2c):
+    """Code taken from: https://carla.readthedocs.io/en/latest/tuto_G_bounding_boxes/"""
+    # Calculate 2D projection of 3D coordinate
+
+    # Format the input coordinate (loc is a carla.Position object)
+    point = np.array([loc[0], loc[1], loc[2], 1])
+    # transform to camera coordinates
+    point_camera = np.dot(w2c, point)
+
+    # New we must change from UE4's coordinate system to an "standard"
+    # (x, y ,z) -> (y, -z, x)
+    # and we remove the fourth componebonent also
+    point_camera = [point_camera[1], -point_camera[2], point_camera[0]]
+
+    # now project 3D->2D using the camera matrix
+    point_img = np.dot(K, point_camera)
+    # normalize
+    point_img[0] /= point_img[2]
+    point_img[1] /= point_img[2]
+
+    return point_img[0:2]

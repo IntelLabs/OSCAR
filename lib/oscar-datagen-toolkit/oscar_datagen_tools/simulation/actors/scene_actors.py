@@ -30,7 +30,7 @@ class SceneActor(Actor):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: List[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -77,7 +77,7 @@ class Walker(SceneActor):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: List[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -168,7 +168,7 @@ class Vehicle(SceneActor):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: List[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -201,3 +201,13 @@ class Vehicle(SceneActor):
         self.carla_actor.set_light_state(carla.VehicleLightState.NONE)
 
         return True
+
+    def __post_spawn_command__(self, command):
+        FutureActor = carla.command.FutureActor
+        command.then(
+            carla.command.SetAutopilot(
+                FutureActor, True, self.context.simulation_params.traffic_manager_port
+            )
+        )
+        command.then(carla.command.SetVehicleLightState(FutureActor, carla.VehicleLightState.NONE))
+        return command

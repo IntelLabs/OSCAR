@@ -17,7 +17,7 @@ All the actors use as base the `Actor` class, which has the following options:
 
 ## Cameras
 
-The camera actor is a compositions of different types of sensors. All these sensors will have the same configuration (see `image_size_x`, `image_size_y`, `motion_blur_intensity` examples bellow), but there are also sensor specific configurations that are set at the `sensor_blueprints` scope (see RGB's `gamma` example bellow).
+The camera actor is a compositions of different types of sensors. All these sensors will have the same configuration (see `image_size_x`, `image_size_y`, `motion_blur_intensity` examples below), but there are also sensor specific configurations that are set at the `sensor_blueprints` scope (see RGB's `gamma` example below).
 
 The camera movements can be configure using the `motion_params` estructure. With this object is possible to determine the **sampling resolution** of the generated route of the camera and the **number of random waypoints** that can be used to create the route between the start and end points.
 
@@ -157,3 +157,35 @@ These actors are the representation of the different vehicles in the simulation.
 | `color` | `str` | "255,0,0" | RGB representation. |
 | `sticky_control` | `bool` | False | - |
 | `terramechanics` | `bool` | False | - |
+
+## Patches
+
+These actors represents green screen patches that can be placed as static elements in the simulation. These elements also have the possibility of draw an specific texture specified by the user.
+
+### Config representation
+```YAML
+- _target_: oscar_datagen_tools.simulation.actors.Patch
+    blueprint: 
+      _target_: oscar_datagen_tools.simulation.blueprints.HugePatch
+    transform:
+      _target_: carla.Transform
+      location:
+        _target_: carla.Location
+        x: 120
+        y: 10
+        z: 0.20
+      rotation:
+        _target_: carla.Rotation
+        roll: 0.0
+        pitch: 45.0
+        yaw: 0.0
+    texture_path: ${paths.texture_dir}/patch.png
+```
+
+By default the texture images can be placed in `<ROOT_REPO>/data/texture` represented in the variable `paths.texture_dir`.
+
+### Options
+| Option | Type |  Default value | Description |
+| ------ | ---- | -------------- | ----------- |
+| `blueprint` | `oscar_datagen_tools.simulation.blueprints.Patch` | "Patch" | Type of patch: <br> - `MediumPatch` <br> - `BigPatch` <br> - `HugePatch` |
+| `texture_path` | `str` | `""` | Path to the texture image. |

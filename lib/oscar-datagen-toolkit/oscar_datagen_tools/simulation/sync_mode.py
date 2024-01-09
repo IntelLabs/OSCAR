@@ -37,13 +37,12 @@ class SyncMode:
 
         logger.info(f"Init sensors: {self.sensors}, kwargs: {self.context.sync_params.fps}")
 
+    def __enter__(self):
         assert self.context.world is not None
         assert self.context.traffic_manager is not None
         self.context.traffic_manager.set_respawn_dormant_vehicles(
             self.context.simulation_params.respawn
         )
-
-    def __enter__(self):
         self._settings = self.context.world.get_settings()
         self.frame = self.context.world.apply_settings(
             carla.WorldSettings(
@@ -56,11 +55,12 @@ class SyncMode:
         self.context.traffic_manager.set_random_device_seed(self.context.client_params.seed)
         time.sleep(1)
 
+        return self
+
+    def prepare_sensors(self) -> None:
         # Start listening sensor's data
         for sensor in self.sensors:
             sensor.start_listening()
-
-        return self
 
     def tick(self, timeout) -> carla.WorldSnapshot:
         # execute the interval of ticks defined in the

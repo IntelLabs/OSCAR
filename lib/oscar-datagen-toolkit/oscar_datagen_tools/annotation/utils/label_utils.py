@@ -83,6 +83,11 @@ class CategoriesHandler:
         categories: Dict[str, Any]
             Dictionary with the verified categories along with their ids.
         """
+        # Verify that the 'Unlabeled' category is included.
+        # It is used to extract information about possible patches in the frame.
+        if "Unlabeled" not in user_categories:
+            user_categories.append("Unlabeled")
+
         # start dataset's ids from 1
         idx = 1
         for category in user_categories:
@@ -100,6 +105,25 @@ class CategoriesHandler:
             raise Exception("No valid categories found")
 
         logger.info(f"Categories: {self.categories}")
+
+    def get_category_name_from_id(self, index: int) -> str:
+        """Getter function to return the corresponding category name given some ID.
+
+        Parameters
+        ----------
+        index: int
+            Category index.
+        Returns
+        -------
+        category name: str
+        """
+        result = None
+        for category in self.categories:
+            if category["id"] == index:
+                result = category["name"]
+                break
+
+        return result
 
     def __process_binary_mask__(
         self, obj_binary: ndimage, img_category: ndimage, frame_category: int

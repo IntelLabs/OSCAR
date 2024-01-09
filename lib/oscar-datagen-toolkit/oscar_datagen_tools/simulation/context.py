@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import logging
 from itertools import cycle
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
+import carla
 import coloredlogs
 from carla import Client, Transform, WeatherParameters, WorldSettings
 from numpy import random
@@ -17,6 +18,7 @@ from packaging import version
 from .utils import run_request
 
 if TYPE_CHECKING:
+    from .actors import Actor
     from .parameters import ClientParameters, SimulationParameters, SyncParameters
 
 __all__ = ["Context"]
@@ -60,6 +62,11 @@ class Context(Client):
 
         # private
         self._spawn_points = []
+        self._blueprint_library = None
+
+    @property
+    def blueprint_library(self):
+        return self._blueprint_library
 
     @run_request
     def verify_connection(self) -> bool:
@@ -99,6 +106,9 @@ class Context(Client):
         random.shuffle(self._spawn_points)
         self._spawn_iter = cycle(self._spawn_points)
 
+        # setup blueprint library
+        self._blueprint_library = self.world.get_blueprint_library()
+
         # setup simulator's traffic manager
         self.traffic_manager = self.get_trafficmanager(self.simulation_params.traffic_manager_port)
         self.traffic_manager.set_synchronous_mode(True)
@@ -131,3 +141,34 @@ class Context(Client):
 
     def get_number_of_spawn_points(self):
         return len(self._spawn_points)
+
+    def batch_spawn(self, actors: list[Actor]) -> bool:
+        if len(actors) == 0:
+            return False
+
+        # generate commands batch
+        batch = []
+        for actor in actors:
+            command = actor.spawn_command()
+
+            if command:
+                batch.append(command)
+
+        if len(batch) == 0:
+            return False
+
+        # Spawn batches
+        counter = 0
+        for i, response in enumerate(self.apply_batch_sync(batch, True)):
+            if response.error:
+                logging.debug(response.error)
+                continue
+
+            actor_id = response.actor_id
+            carla_actor = self.world.get_actor(actor_id)
+            actors[i].update_carla_actor(carla_actor)
+
+            counter += 1
+
+        logger.debug(f"{counter} actors spawned.")
+        return True

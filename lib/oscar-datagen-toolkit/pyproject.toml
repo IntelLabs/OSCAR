@@ -1,6 +1,6 @@
 [project]
 name = "oscar_datagen_toolkit"
-version = "3.0.0"
+version = "3.1.0"
 description = "OSCAR Datagen Toolkit"
 readme = "README.md"
 license = {file = "LICENSE"}

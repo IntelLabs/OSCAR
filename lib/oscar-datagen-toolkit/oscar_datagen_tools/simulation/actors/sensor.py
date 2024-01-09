@@ -8,7 +8,6 @@ import abc
 import logging
 import math
 import time
-import uuid
 from pathlib import Path
 from typing import List
 
@@ -23,7 +22,7 @@ from ..blueprints import InstanceSegmentation as BPInstanceSegmentation
 from ..blueprints import Sensor as BPSensor
 from ..context import Context
 from ..parameters import MotionParameters
-from ..utils import is_jsonable, replace_modality_in_path
+from ..utils import generate_uuid, is_jsonable, replace_modality_in_path
 from .base import Actor
 from .controller_actors import SensorController
 
@@ -66,7 +65,7 @@ class Sensor(Actor, ISensor):
         motion_params: MotionParameters = None,
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: List[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -81,17 +80,18 @@ class Sensor(Actor, ISensor):
             **kwargs,
         )
 
-        self.motion_params = motion_params or MotionParameters()
+        self.motion_params = motion_params
         self.blueprint = blueprint
         self.data = None
 
-        self.controller = SensorController(
-            transform=self.transform,
-            destination_transform=self.destination_transform,
-            motion_params=motion_params,
-        )
-        self.controller.parent = self
-        self.attachments.append(self.controller)
+        if self.motion_params:
+            self.controller = SensorController(
+                transform=self.transform,
+                destination_transform=self.destination_transform,
+                motion_params=motion_params,
+            )
+            self.controller.parent = self
+            self.attachments.append(self.controller)
 
     def __pre_spawn__(self) -> bool:
         if not super().__pre_spawn__():
@@ -107,6 +107,13 @@ class Sensor(Actor, ISensor):
         self.name = format_sensor_name(self.name)
 
         return True
+
+    def update_carla_actor(self, actor: carla.Actor) -> None:
+        super().update_carla_actor(actor)
+
+        for attachment in self.attachments:
+            if isinstance(attachment, SensorController):
+                attachment.spawn()
 
     def __on_listen__(self, data: SensorData) -> None:
         logger.debug(f"Received new data for sensor: {self.name}")
@@ -138,7 +145,10 @@ class Sensor(Actor, ISensor):
         # If the sensor is attached to another actor
         # this step won't be performed
         if self.parent is not None:
-            return
+            return None
+
+        if not self.motion_params:
+            return None
 
         # update sensor's location
         command = None
@@ -182,8 +192,8 @@ class Camera(Actor, ISensor):
         motion_params: MotionParameters = None,
         transform: Transform = None,
         destination_transform: Transform = None,
-        sensors_blueprints: List[BPSensor] = [],
-        attachments: List[carla.Actor] = [],
+        sensors_blueprints: List[BPSensor] = None,
+        attachments: List[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -198,10 +208,13 @@ class Camera(Actor, ISensor):
             **kwargs,
         )
 
-        self.id = int(uuid.uuid1())
+        self.id = generate_uuid()
         self.carla_actor = None
         self.parent = None
-        self.motion_params = motion_params or MotionParameters()
+        self.motion_params = motion_params
+
+        if sensors_blueprints is None:
+            sensors_blueprints = []
 
         assert len(sensors_blueprints) > 0, "The camera must have at least one sensor!"
 

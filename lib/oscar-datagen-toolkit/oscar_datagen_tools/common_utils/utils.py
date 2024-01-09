@@ -11,6 +11,7 @@ from pathlib import Path
 import coloredlogs
 
 __all__ = [
+    "format_patch_name",
     "format_camera_name",
     "format_sensor_name",
     "generate_image_filename",
@@ -38,6 +39,21 @@ CAMERA_ID = -1
 # unformatted sensor directory name: camera.sensor.<TYPE>.<ID>
 SENSOR_TYPE = -2
 SENSOR_ID = -1
+
+
+def format_patch_name(patch_id: int) -> str:
+    """Adjust the format of the patch name, where the expected format is: static.prop.<ID>
+
+    Parameters
+    ----------
+    patch_id : id
+        Patch's unique identifier.
+    Returns
+    -------
+    patch_name: str
+        Patch name.
+    """
+    return f"static.prop.{patch_id}"
 
 
 def format_camera_name(camera_id: int) -> str:

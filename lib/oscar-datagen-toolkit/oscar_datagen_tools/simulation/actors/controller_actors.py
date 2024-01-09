@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
+from __future__ import annotations
+
 import logging
 from itertools import cycle
 from typing import List
@@ -37,7 +39,7 @@ class Controller(Actor):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: list[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -70,7 +72,7 @@ class WalkerController(Controller):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: list[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -133,7 +135,7 @@ class SensorController(Controller):
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: list[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         motion_params: MotionParameters = None,
         *args,
@@ -258,6 +260,10 @@ class SensorController(Controller):
         self.route_iter = cycle(self.route)
 
         return True
+
+    def spawn_command(self, parent: carla.Actor = None) -> carla.Command:
+        # SensorController is not spawned via CARLA
+        return None
 
     def step(self) -> carla.Transform:
         waypoint = next(self.route_iter, None)

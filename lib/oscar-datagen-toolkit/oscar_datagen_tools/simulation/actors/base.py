@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Dict, List
 
@@ -26,7 +28,7 @@ class Actor:
         context: Context = Context(),
         transform: Transform = None,
         destination_transform: Transform = None,
-        attachments: List[carla.Actor] = [],
+        attachments: list[carla.Actor] = None,
         attachment_type: AttachmentType = AttachmentType.Rigid,
         *args,
         **kwargs,
@@ -41,6 +43,9 @@ class Actor:
         self.parent = None
         self.attachments = attachments
         self.attachment_type = attachment_type
+
+        if self.attachments is None:
+            self.attachments = []
 
         for attachment in self.attachments:
             # avoid override an already set parent. This is specially relevant
@@ -98,8 +103,7 @@ class Actor:
 
         # setup actor's blueprint
         assert self.blueprint is not None
-        blueprint_lib = self.context.world.get_blueprint_library()
-        if not self.blueprint.setup(blueprint_lib):
+        if not self.blueprint.setup(self.context.blueprint_library):
             logger.error("Blueprint setup failed.")
             return False
 
@@ -111,7 +115,6 @@ class Actor:
             attach_to=attach_to,
             attachment_type=self.attachment_type,
         )
-        self.context.world.tick()
 
         # spawn attachments
         for attachment in self.attachments:
@@ -129,6 +132,39 @@ class Actor:
 
         return True
 
+    def __post_spawn_command__(self, command):
+        return command
+
+    def spawn_command(self) -> carla.Command:
+        if not self.__pre_spawn__():
+            logger.error("Pre-spawn process failed.")
+            return None
+
+        # setup actor's blueprint
+        assert self.blueprint is not None
+        if not self.blueprint.setup(self.context.blueprint_library):
+            logger.error("Blueprint setup failed.")
+            return None
+
+        command = None
+        if self.parent and self.parent.carla_actor:
+            parent = self.parent.carla_actor
+            command = carla.command.SpawnActor(
+                self.blueprint.carla_blueprint, self.transform, parent
+            )
+        elif not self.parent:
+            command = carla.command.SpawnActor(self.blueprint.carla_blueprint, self.transform)
+
+        command = self.__post_spawn_command__(command)
+
+        return command
+
+    def update_carla_actor(self, actor: carla.Actor) -> None:
+        self.carla_actor = actor
+
+        if not self.__post_spawn__():
+            logger.error("Post-spawn process failed.")
+
     def is_alive(self) -> bool:
         assert self.carla_actor is not None
         return self.carla_actor.is_alive
@@ -136,10 +172,10 @@ class Actor:
     def destroy(self) -> bool:
         return self.carla_actor.destroy()
 
-    def get_static_metadata(self) -> Dict[Dict[str, Any], str]:
+    def get_static_metadata(self) -> dict[dict[str, Any], str]:
         return ({}, "")
 
-    def get_dynamic_metadata(self) -> Dict[Dict[str, Any], str]:
+    def get_dynamic_metadata(self) -> dict[dict[str, Any], str]:
         actor_data = {}
         actor_data["type"] = self.carla_actor.type_id
 

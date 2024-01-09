@@ -87,7 +87,7 @@ class CLI:
         interval: int = 1,
         categories: List[str] = ["Pedestrian", "Vehicle", "TrafficLight"],
         sensor: str = "rgb",
-        binary_fill_holes: bool = True,
+        binary_fill_holes: bool = False,
     ) -> None:
         self.dataset_parent_dir = Path(dataset_parent_dir)
         self.exclude_dirs = exclude_dirs
@@ -120,19 +120,19 @@ class CLI:
 
     def kwcoco(self) -> None:
         """COCO compatible annotation."""
-        annotator = COCO(self.interval, self._categories_handler)
+        annotator = COCO(self.interval, self._categories_handler, self.sensor)
         self.__annotate__(annotator)
 
     def mots_txt(self) -> None:
         """MOTS compatible annotation, generating a text file."""
         annot_format = MOTSText(self.dataset_parent_dir)
-        annotator = MOTS(self.interval, self._categories_handler, annot_format)
+        annotator = MOTS(self.interval, self._categories_handler, self.sensor, annot_format)
         self.__annotate__(annotator)
 
     def mots_png(self) -> None:
         """MOTS compatible annotation, generating PNG images."""
         annot_format = MOTSPng(self.dataset_parent_dir / "instances")
-        annotator = MOTS(self.interval, self._categories_handler, annot_format)
+        annotator = MOTS(self.interval, self._categories_handler, self.sensor, annot_format)
         self.__annotate__(annotator)
 
 

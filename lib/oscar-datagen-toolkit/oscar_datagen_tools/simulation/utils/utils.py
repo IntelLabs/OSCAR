@@ -8,11 +8,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import coloredlogs
-from carla import Transform, WorldSnapshot
+import numpy as np
+from carla import Location, Transform, WorldSnapshot
 from hydra.core.hydra_config import HydraConfig
 
 if TYPE_CHECKING:
@@ -28,6 +30,9 @@ __all__ = [
     "is_jsonable",
     "is_equal",
     "replace_modality_in_path",
+    "get_number_of_tiles",
+    "transform",
+    "generate_uuid",
 ]
 
 RETRY = 5
@@ -179,6 +184,7 @@ def save_static_metadata(actors: list[Actor], path: Path):
     metadata_static["actors"] = {}
     metadata_static["cameras"] = {}
     metadata_static["controllers"] = {}
+    metadata_static["patches"] = {}
 
     for actor in actors:
         metadata, key_value = actor.get_static_metadata()
@@ -207,6 +213,7 @@ def save_dynamic_metadata(
     metadata_dynamic["actors"] = {}
     metadata_dynamic["cameras"] = {}
     metadata_dynamic["controllers"] = {}
+    metadata_dynamic["patches"] = {}
 
     for actor in actors:
         metadata, key_value = actor.get_dynamic_metadata()
@@ -270,3 +277,89 @@ def replace_modality_in_path(path: Path, modality: str) -> str:
         str: Path' string with the desired modality.
     """
     return str(path).format(modality_type=modality)
+
+
+def get_number_of_tiles(scale: float) -> int:
+    """Return the number of tiles to create according to the specified scale factor.
+
+    Args:
+        scale (float): scale value.
+
+    Returns:
+        int: Number of tiles to scale a  patch.
+    """
+    tiles = int(scale)
+    if scale - tiles > 0:
+        tiles += 1
+
+    return tiles
+
+
+def transform(object_transform: Transform, center_transform: Transform) -> Transform:
+    """Transform an object location and rotation using another Transform object as reference.
+
+    Args:
+        object_transform (Transform): Object location and rotation.
+        center_transform (Transform): Reference transform.
+
+    Returns:
+        Transform: new transform.
+    """
+    # get a 3D affine transformation matrix
+    matrix_transform = center_transform.get_matrix()
+
+    # extract the center and object point's locations
+    center = np.array(
+        [
+            [center_transform.location.x],
+            [center_transform.location.y],
+            [center_transform.location.z],
+            [1],
+        ]
+    )
+    point = np.array(
+        [
+            [object_transform.location.x],
+            [object_transform.location.y],
+            [object_transform.location.z],
+            [1],
+        ]
+    )
+
+    # calculate delta axis from center point
+    center_result = np.matmul(matrix_transform, center)
+    center_result = center_result.T[0]
+    delta_x = center_result[0] - center_transform.location.x
+    delta_y = center_result[1] - center_transform.location.y
+    delta_z = center_result[2] - center_transform.location.z
+
+    # apply transform to object point
+    result = np.matmul(matrix_transform, point)
+    result = result.T[0]
+
+    # build a new transform
+    x = result[0] - delta_x
+    y = result[1] - delta_y
+    z = result[2] - delta_z
+    new_transform = Transform(location=Location(x=x, y=y, z=z), rotation=object_transform.rotation)
+
+    return new_transform
+
+
+def generate_uuid(seed: int = None) -> int:
+    """Generate a UUID identifier in a deterministic way by specifying an integer value randomly
+    generated with numpy.
+
+    Args:
+        seed : seed to reset the state of the RNG.
+    Returns:
+        UUID identifier.
+    """
+    if seed:
+        np.random.seed(seed)
+
+    # Generate four 32-bit integers and combine them to form a 128-bit integer
+    random_bits = [np.random.randint(0, 2**32) for _ in range(4)]
+    random_uuid_int = sum(bit << (32 * i) for i, bit in enumerate(random_bits))
+
+    return int(uuid.UUID(int=random_uuid_int))

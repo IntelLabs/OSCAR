@@ -11,4 +11,8 @@ USER root
 # to verify if the CARLA server is up and running.
 RUN apt-get install -y netcat
 
+# Install patches
+COPY docker/Patches_0.9.13.tar.gz /home/carla/Import/Patches_0.9.13.tar.gz
+RUN /home/carla/ImportAssets.sh
+
 USER carla
