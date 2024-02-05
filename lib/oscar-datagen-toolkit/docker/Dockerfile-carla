@@ -1,18 +1,17 @@
-# Copyright (c) 2023 Intel Corporation.
+# Copyright (c) 2024 Intel Corporation.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-ARG OS_VER="0.9.13"
-FROM carlasim/carla:${OS_VER}
-
-USER root
+ARG CARLA_VERSION="0.9.13"
+FROM carlasim/carla:${CARLA_VERSION}
+ARG CARLA_VERSION="0.9.13" # ARG is lost after FROM
 
 # CARLA base image does not have Netcat installed. This is needed
 # to verify if the CARLA server is up and running.
-RUN apt-get install -y netcat
+USER root
+RUN apt-get update; apt-get install -y netcat python3.7 libpng16-16 libtiff5 libjpeg8
 
 # Install patches
-COPY docker/Patches_0.9.13.tar.gz /home/carla/Import/Patches_0.9.13.tar.gz
-RUN /home/carla/ImportAssets.sh
-
 USER carla
+COPY docker/Patches_${CARLA_VERSION}.tar.gz /home/carla/Import/Patches_${CARLA_VERSION}.tar.gz
+RUN /home/carla/ImportAssets.sh

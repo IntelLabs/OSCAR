@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -15,16 +15,16 @@ from PIL import Image
 from scipy import ndimage
 from tqdm import tqdm
 
-from oscar_datagen_tools.common_utils import verify_image_filename
-
-from ..utils import (
-    CategoriesHandler,
+from oscar_datagen_tools.common_utils import (
     build_projection_matrix,
     filename_decode,
-    get_image_point,
+    get_patch_in_camera,
     load_dynamic_metadata,
     load_sensors_static_metadata,
+    verify_image_filename,
 )
+
+from ..utils import CategoriesHandler
 
 __all__ = ["Annotator"]
 
@@ -34,11 +34,18 @@ coloredlogs.install(level=logging.INFO)
 
 class Annotator(abc.ABC):
     def __init__(
-        self, interval: int, categories_handler: CategoriesHandler, sensor_type: str
+        self,
+        categories_handler: CategoriesHandler,
+        sensor_type: str,
+        dataset_path: Path,
+        interval: int = 1,
     ) -> None:
         self.interval = interval
         self.categories_handler = categories_handler
         self.sensor_type = sensor_type
+        self.dataset_path = dataset_path
+
+        assert self.dataset_path.exists()
 
         self._dict_annot = {}
         self._obj_id_count = 1
@@ -116,11 +123,7 @@ class Annotator(abc.ABC):
         if self._patch_mask is None:
             return
 
-        # get dataset dir from image path that has the following format: dataset_dir/<modality>/<collection_timestamp>/00000x.png
-        base_path = path.parent.parent.parent
-        assert base_path.exists()
-
-        patch_path = base_path / "foreground_mask" / path.parent.name
+        patch_path = self.dataset_path / "foreground_mask"
         if not patch_path.exists():
             patch_path.mkdir(parents=True)
 
@@ -133,60 +136,44 @@ class Annotator(abc.ABC):
             return
 
         # get the static metadata for the given sensor
-        camera_id, frame_num = filename_decode(path.name)
-        run_id = path.parent.name
-        static_metadata_path = (
-            path.parent.parent.parent / "metadata" / run_id / "metadata_static.json"
-        )
+        sensor_id, frame_num = filename_decode(path.name)
+        static_metadata_path = self.dataset_path / "metadata" / "metadata_static.json"
         assert static_metadata_path.exists()
-        sensor_static_metadata = load_sensors_static_metadata(
-            static_metadata_path, self.sensor_type, camera_id
-        )
-
-        # calculate camera matrix
-        image_width = sensor_static_metadata["image_size_x"]
-        image_height = sensor_static_metadata["image_size_y"]
-        fov = sensor_static_metadata["fov"]
-        k = build_projection_matrix(image_width, image_height, fov)
+        sensor_static_metadata = load_sensors_static_metadata(static_metadata_path, sensor_id)
+        assert sensor_static_metadata, f"Did not find static data for sensor {sensor_id}"
 
         # get the dynamic metadata for the given sensor and patches
-        dynamic_metadata_path = (
-            path.parent.parent.parent / "metadata" / run_id / f"{frame_num}.json"
-        )
+        dynamic_metadata_path = self.dataset_path / "metadata" / f"{frame_num}.json"
         assert dynamic_metadata_path.exists()
-        dynamic_metadata = load_dynamic_metadata(
-            dynamic_metadata_path, self.sensor_type, camera_id
-        )
+        dynamic_metadata = load_dynamic_metadata(dynamic_metadata_path, sensor_id)
+        assert dynamic_metadata, f"Did not find dynamic data for sensor {sensor_id}"
 
-        # map from 2D to 3D
-        w2c = np.array(dynamic_metadata["sensor"]["actorsnapshot_transform_get_inverse_matrix"])
-        corners = []
-        for patch_key in dynamic_metadata["patches"].keys():
-            patch_corners = dynamic_metadata["patches"][patch_key]["corners"]
-            for corner_key in patch_corners.keys():
-                location = patch_corners[corner_key]["actor_location"]
-                # point -> [x, y]
-                point = get_image_point(location, k, w2c)
-                corner = [int(point[0]), int(point[1])]
+        # get patch corners
+        _, corners = get_patch_in_camera(sensor_static_metadata, dynamic_metadata)
 
-                # verify that the mapped point is inside the camera view
-                if 0 <= corner[0] <= image_width and 0 <= corner[1] <= image_height:
-                    corners.append(corner)
-                else:
-                    corners = []
-                    break
+        # post-processing the corner's points
+        # 1. Clip the points
+        # 2. Round its values
+        image_width = sensor_static_metadata["image_size_x"]
+        image_height = sensor_static_metadata["image_size_y"]
+        processed_corners = []
+        for corner in corners:
+            x, y = corner
+            x = int(round(min(max(x, 0), image_width)))
+            y = int(round(min(max(y, 0), image_height)))
 
-            # stop iterating when a patch that is in the camera view is found
-            if len(corners) > 0:
-                break
+            processed_corners.append([x, y])
 
         # store the corners coordinates
-        patch_metadata_path = path.parent.parent.parent / "patch_metadata" / run_id
+        patch_metadata_path = self.dataset_path / "patch_metadata"
         if not patch_metadata_path.exists():
             patch_metadata_path.mkdir(parents=True)
 
+        patch_metadata_raw_coords_path = patch_metadata_path / f"{path.stem}_raw_coords.npy"
+        np.save(patch_metadata_raw_coords_path, np.array(corners))
+
         patch_metadata_coords_path = patch_metadata_path / f"{path.stem}_coords.npy"
-        np.save(patch_metadata_coords_path, np.array(corners))
+        np.save(patch_metadata_coords_path, np.array(processed_corners))
 
         if self.sensor_type == "depth":
             # load depth image

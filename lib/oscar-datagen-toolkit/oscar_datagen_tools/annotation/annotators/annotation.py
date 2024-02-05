@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -28,10 +28,8 @@ TOLERANCE = 2
 
 
 class COCO(Annotator):
-    def __init__(
-        self, interval: int, categories_handler: CategoriesHandler, sensor_type: str
-    ) -> None:
-        super().__init__(interval, categories_handler, sensor_type)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
 
         self._annot_id = 1
 
@@ -45,15 +43,14 @@ class COCO(Annotator):
     def __pre_annotation__(self, category_mat_path: Path, data_path: Path, frame: int) -> ndimage:
         categories_mat = super().__pre_annotation__(category_mat_path, data_path, frame)
 
-        # The camera type is expected to be in the path's second parent: <CAMERA_TYPE>/<RUN>/<IMAGE>
+        # The camera type is expected to be in the path's second parent: <CAMERA_TYPE>/<IMAGE>
         camera_type_name = get_sensor_type(data_path.parent.parent)
         image_id = calc_image_id(data_path)
-        # Get the last 2 levels of the path that corresponds to <RUN>/<IMAGE>
-        # This relative path will be set into the annotation file
-        filename = get_relative_path(data_path, parent_level=2)
         height, width, _ = categories_mat.shape
 
-        image_info = pycococreatortools.create_image_info(image_id, str(filename), (width, height))
+        image_info = pycococreatortools.create_image_info(
+            image_id, data_path.name, (width, height)
+        )
         image_info["video_id"] = camera_type_name
         image_info["frame_index"] = frame
         self._annotation_obj["images"].append(image_info)
@@ -97,7 +94,12 @@ class COCO(Annotator):
 
         # re-init class to clean up it's attributes and leave the
         # class ready to use in another annotation process.
-        self.__init__(self.interval, self.categories_handler, self.sensor_type)
+        self.__init__(
+            interval=self.interval,
+            categories_handler=self.categories_handler,
+            sensor_type=self.sensor_type,
+            dataset_path=self.dataset_path,
+        )
 
         return True
 
@@ -106,14 +108,8 @@ OBJECT_SCALE_FACTOR = 1000
 
 
 class MOTS(Annotator):
-    def __init__(
-        self,
-        interval: int,
-        categories_handler: CategoriesHandler,
-        sensor_type: str,
-        format: Format,
-    ) -> None:
-        super().__init__(interval, categories_handler, sensor_type)
+    def __init__(self, format: Format, **kwargs) -> None:
+        super().__init__(**kwargs)
 
         self.format = format
 
@@ -152,6 +148,12 @@ class MOTS(Annotator):
 
         # re-init class to clean up it's attributes and leave the
         # class ready to use in another annotation process.
-        self.__init__(self.interval, self.categories_handler, self.sensor_type, self.format)
+        self.__init__(
+            interval=self.interval,
+            categories_handler=self.categories_handler,
+            sensor_type=self.sensor_type,
+            dataset_path=self.dataset_path,
+            format=self.format,
+        )
 
         return True

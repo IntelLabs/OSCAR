@@ -1,14 +1,24 @@
 #! /bin/bash
 
-SCRIPT=$(realpath "$0")
-SCRIPT_PATH=$(dirname "$SCRIPT")
-source "$SCRIPT_PATH/common.sh"
+#
+# Copyright (C) 2024 Intel Corporation
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
 
 # ==============================================================================
 # -- Run annotation process ----------------------------------------------------
 # ==============================================================================
 
-docker compose run annotator $@
+USER=$(id -u):$(id -g)
+subdirs=( $(find . -name "*.hydra" -exec dirname {} \;) )
+
+# execute annotators
+for subdir in "${subdirs[@]}"; do
+    set -x
+    docker compose run --rm --user $USER oscar_data_annotator $@ --dataset_parent_dir=$subdir
+    set +x
+done
 
 # ==============================================================================
 # -- Clean up ------------------------------------------------------------------

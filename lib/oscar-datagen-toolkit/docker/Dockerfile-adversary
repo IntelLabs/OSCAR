@@ -1,0 +1,12 @@
+# Copyright (C) 2024 Intel Corporation
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
+# INCLUDE+ Dockerfile-oscar-datagen
+
+ARG DATAGEN_TOOLS_VERSION="3.0.0"
+FROM oscar/datagen:${DATAGEN_TOOLS_VERSION}
+
+ARG PYTHON_VERSION="3.9"
+RUN python${PYTHON_VERSION} -m pip install https://github.com/IntelLabs/MART/archive/refs/tags/v0.6.0.zip

@@ -20,7 +20,7 @@ spawn_actors:
     attachments:
       - _target_: oscar_datagen_tools.simulation.actors.WalkerController
         max_speed: 1.4
-        destination_transform:
+        transform:
           _target_: carla.Transform
           location:
             _target_: carla.Location
@@ -29,12 +29,9 @@ spawn_actors:
             z: 0.6
 
   - _target_: oscar_datagen_tools.simulation.actors.Camera
+    modalities: [rgb, depth, instance_segmentation]
     image_size_x: 800
     image_size_y: 600
-    sensors_blueprints:
-      - _target_: oscar_datagen_tools.simulation.blueprints.RGB
-      - _target_: oscar_datagen_tools.simulation.blueprints.Depth
-      - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
     transform:
       _target_: carla.Transform
       location:

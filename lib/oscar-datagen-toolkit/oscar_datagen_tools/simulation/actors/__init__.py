@@ -1,3 +1,9 @@
+#
+# Copyright (C) 2024 Intel Corporation
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 from .base import *
 from .controller_actors import *
 from .generator import *

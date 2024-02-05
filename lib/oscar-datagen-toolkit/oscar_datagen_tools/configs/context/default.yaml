@@ -1,28 +1,30 @@
 _target_: oscar_datagen_tools.simulation.Context
 client_params:
   _target_: oscar_datagen_tools.simulation.parameters.ClientParameters
-  host: "127.0.01"
+  host: "127.0.0.1"
   port: 2000
-  timeout: 5.0
+  timeout: 5
   retry: 10
   seed: 30
 simulation_params:
   _target_: oscar_datagen_tools.simulation.parameters.SimulationParameters
-  traffic_manager_port: 8000
+  traffic_manager_port: 5000
   respawn: true
-  townmap: "Town10HD"
+  townmap: "Carla/Maps/Town10HD_Opt"
+  warmup: 50
+  interval: 1
 sync_params:
   _target_: oscar_datagen_tools.simulation.parameters.SyncParameters
   fps: 30.0
   timeout: 2.0
 weather_params:
   _target_: carla.WeatherParameters
-  cloudiness: 0.0
+  cloudiness: 25.0
   precipitation: 0.0
   precipitation_deposits: 0.0
   wind_intensity: 0.0
   sun_azimuth_angle: 0.0
-  sun_altitude_angle: 10.0
+  sun_altitude_angle: 20.0
   fog_density: 0.0
   fog_distance: 0.0
   wetness: 0.0

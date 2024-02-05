@@ -1,0 +1,57 @@
+# @package _global_
+
+max_frames: 1
+
+actors:
+  camera:
+    _target_: oscar_datagen_tools.simulation.actors.Camera
+    modalities: [rgb, depth, instance_segmentation]
+    image_size_x: 1280
+    image_size_y: 960
+    motion_blur_max_distortion: 0.0
+    gamma: 2.2
+    transform:
+      _target_: carla.Transform
+      location:
+        _target_: carla.Location
+        x: -41.75
+        y: -31.75
+        z: 40
+      rotation:
+        _target_: carla.Rotation
+        roll: 0
+        pitch: 310
+        yaw: 262.25
+
+  patch:
+    _target_: oscar_datagen_tools.simulation.actors.Patch
+    width: 43.5
+    height: 17.25
+    transform:
+      _target_: carla.Transform
+      location:
+        _target_: carla.Location
+        x: -47
+        y: -63.5
+        z: 0.2
+      rotation:
+        _target_: carla.Rotation
+        roll: 0
+        pitch: 0
+        yaw: 0
+
+  vehicles:
+    _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _recursive_: false  # we don't want hydra to instantiate anything below
+    _actor_: oscar_datagen_tools.simulation.actors.Vehicle
+    seed: 0
+    count: 15
+    spawn_in_view_of_sensor: ${actors.camera}
+
+  walkers:
+    _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _recursive_: false  # we don't want hydra to instantiate anything below
+    _actor_: oscar_datagen_tools.simulation.actors.Walker
+    seed: 0
+    count: 20
+    spawn_in_view_of_sensor: ${actors.camera}

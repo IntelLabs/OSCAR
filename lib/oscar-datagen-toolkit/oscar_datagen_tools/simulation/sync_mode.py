@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -26,16 +26,13 @@ class SyncMode:
                 data = sync_mode.tick(timeout=1.0)
     """
 
-    def __init__(self, context, sensors):
+    def __init__(self, context):
         assert context is not None
 
         self.context = context
-        self.sensors = sensors
         self.delta_seconds = 1.0 / self.context.sync_params.fps
         self.frame = None
         self._settings = None
-
-        logger.info(f"Init sensors: {self.sensors}, kwargs: {self.context.sync_params.fps}")
 
     def __enter__(self):
         assert self.context.world is not None
@@ -57,10 +54,14 @@ class SyncMode:
 
         return self
 
-    def prepare_sensors(self) -> None:
+    def prepare_sensors(self, sensors) -> None:
+        self.sensors = sensors
+        logger.info(f"Init sensors: {self.sensors}, kwargs: {self.context.sync_params.fps}")
+
         # Start listening sensor's data
         for sensor in self.sensors:
-            sensor.start_listening()
+            if sensor.is_alive:
+                sensor.start_listening()
 
     def tick(self, timeout) -> carla.WorldSnapshot:
         # execute the interval of ticks defined in the
@@ -83,4 +84,5 @@ class SyncMode:
         self.context.traffic_manager.set_synchronous_mode(False)
 
         for sensor in self.sensors:
-            sensor.stop_listening()
+            if sensor.is_alive:
+                sensor.stop_listening()

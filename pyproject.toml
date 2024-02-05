@@ -24,6 +24,7 @@ developer = [
     "gdown",
     "diffusers == 0.20.0",
     "accelerate == 0.21.0",
+    "transformers == 4.36.2",
 ]
 
 object_detection = [

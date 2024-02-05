@@ -1,56 +1,71 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
+
+from __future__ import annotations
 
 import logging
 from typing import List
 
 import carla
 import coloredlogs
+import numpy as np
+from numpy import random
 from carla import AttachmentType, Transform
 
-from ..blueprints import Vehicle as BPVehicle
-from ..blueprints import Walker as BPWalker
 from ..context import Context
 from .base import Actor
+from .sensor import Sensor
+from .controller_actors import WalkerController
+from ...common_utils import get_world_point
 
 __all__ = ["Walker", "Vehicle"]
-
-KEY_VALUE = "actors"
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.INFO)
 
 
 class SceneActor(Actor):
-    def __init__(
-        self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: List[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
+    KEY_VALUE = "actors"
+
+    def __init__(self,
         *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+        spawn_in_view_of_sensor: Sensor | list[Sensor] = None,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
 
-    def get_static_metadata(self):
-        actor_data = {}
-        actor_data["type"] = self.carla_actor.type_id
+        self._spawn_in_view_of_sensor = spawn_in_view_of_sensor[0] if isinstance(spawn_in_view_of_sensor, list) else spawn_in_view_of_sensor
 
-        bbox = self.carla_actor.bounding_box
+    # FIXME: This feels like the wrong abstraction. The problem is we need to select different
+    #        waypoints depending upon the kind of actor (vehicles -> roads, walkers -> sidewalks).
+    def _random_waypoint_in_view_of_sensor(self, **waypoint_kwargs):
+        sensor = self._spawn_in_view_of_sensor
+
+        # Chose random image coordinate and project it to world coordinates using sensor transform
+        x = random.uniform(0, sensor.image_size_x)
+        y = random.uniform(0, sensor.image_size_y)
+        x, y = get_world_point(
+            np.array([[x, y]]),
+            sensor.transform,
+            sensor.image_size_x,
+            sensor.image_size_y,
+            sensor.fov
+        )[0]
+
+        # Find nearest waypoint and move actor there
+        location = carla.Location(x=x, y=y, z=0)
+        waypoint = self.context.world.get_map().get_waypoint(location, **waypoint_kwargs)
+        transform = waypoint.transform
+        transform.location.z = 0.6 # spawn point height
+
+        return transform
+
+    def get_static_metadata(self, **actor_data):
         actor_data["3D_BoundingBox"] = {}
+        bbox = self.carla_actor.bounding_box
         actor_data["3D_BoundingBox"]["location"] = (
             bbox.location.x,
             bbox.location.y,
@@ -63,64 +78,31 @@ class SceneActor(Actor):
         )
         actor_data["3D_BoundingBox"]["extent"] = (bbox.extent.x, bbox.extent.y, bbox.extent.z)
 
-        return (actor_data, KEY_VALUE)
-
-    def get_dynamic_metadata(self):
-        actor_data, _ = super().get_dynamic_metadata()
-
-        return (actor_data, KEY_VALUE)
+        return super().get_static_metadata(**actor_data)
 
 
 class Walker(SceneActor):
     def __init__(
         self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: List[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
-        *args,
-        **kwargs,
+        name: str = "*",
+        **kwargs
     ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+        super().__init__(f"walker.{name}", **kwargs)
 
-        self.blueprint = BPWalker(*args, **kwargs)
+    def __pre_spawn__(self) -> bool:
+        # Replace transform with transform in view of sensor
+        if self._spawn_in_view_of_sensor:
+            self.transform = self._random_waypoint_in_view_of_sensor(lane_type=carla.LaneType.Sidewalk)
 
-    def __pre_spawn__(self):
-        assert self.context is not None
-        assert self.context.world is not None
-
-        # verify transforms
         if self.transform is None:
             self.transform = self.context.get_spawn_point(from_navigation=True)
-            logger.debug(
-                f"Selected random location (none provided) x: {self.transform.location.x}, "
-                f"y: {self.transform.location.y}, z: {self.transform.location.z} "
-                f"roll: {self.transform.rotation.roll}, pitch: {self.transform.rotation.pitch}, yaw: {self.transform.rotation.yaw}"
-            )
-        if self.destination_transform is None:
-            self.destination_transform = self.transform
-            logger.debug(
-                f"Selected random destination location (none provided) x: {self.destination_transform.location.x}, "
-                f"y: {self.destination_transform.location.y}, z: {self.destination_transform.location.z}"
-            )
 
-        assert isinstance(self.blueprint, BPWalker)
         return True
 
     def get_dynamic_metadata(self):
-        actor_data, key_value = super().get_dynamic_metadata()
-
-        bones = self.carla_actor.get_bones().bone_transforms
+        actor_data = {}
         actor_data["bones"] = []
+        bones = self.carla_actor.get_bones().bone_transforms
         for bone in bones:
             bone_data = {}
             bone_data["name"] = bone.name
@@ -159,55 +141,27 @@ class Walker(SceneActor):
             )
             actor_data["bones"].append(bone_data)
 
-        return (actor_data, key_value)
+        return super().get_dynamic_metadata(**actor_data)
 
 
 class Vehicle(SceneActor):
-    def __init__(
-        self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: List[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
-        *args,
-        **kwargs,
+    def __init__(self,
+        name: str = "*",
+        color: str = "{},{},{}",
+        **kwargs
     ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+        # Allow random color generation
+        if color:
+            kwargs["color"] = color.format(*random.randint(0, 255, 3))
 
-        self.blueprint = BPVehicle(*args, **kwargs)
+        super().__init__(f"vehicle.{name}", **kwargs)
 
-    def __pre_spawn__(self):
-        if not super().__pre_spawn__():
-            return False
+    def __pre_spawn__(self) -> bool:
+        # Replace transform with transform in view of sensor
+        if self._spawn_in_view_of_sensor:
+            self.transform = self._random_waypoint_in_view_of_sensor(lane_type=carla.LaneType.Driving)
 
-        assert isinstance(self.blueprint, BPVehicle)
-        return True
-
-    def __post_spawn__(self) -> bool:
-        if not super().__post_spawn__():
-            return False
-
-        # setup vehicle
-        self.carla_actor.set_autopilot(True, self.context.simulation_params.traffic_manager_port)
-        self.carla_actor.set_light_state(carla.VehicleLightState.NONE)
+        if self.transform is None:
+            self.transform = self.context.get_spawn_point(from_navigation=False)
 
         return True
-
-    def __post_spawn_command__(self, command):
-        FutureActor = carla.command.FutureActor
-        command.then(
-            carla.command.SetAutopilot(
-                FutureActor, True, self.context.simulation_params.traffic_manager_port
-            )
-        )
-        command.then(carla.command.SetVehicleLightState(FutureActor, carla.VehicleLightState.NONE))
-        return command

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -12,15 +12,15 @@ from typing import List
 
 import carla
 import coloredlogs
+from numpy import random
 from carla import AttachmentType, LaneType, Rotation, Transform
 
-from ..blueprints import WalkerAIController as BPWalkerAIController
 from ..context import Context
 from ..parameters import MotionParameters
 from ..utils import is_equal
 from .base import Actor
 
-__all__ = ["Controller", "WalkerController", "SensorController"]
+__all__ = ["Controller", "VehicleController", "WalkerController", "SensorController"]
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.INFO)
@@ -30,101 +30,88 @@ try:
 except ImportError:
     logger.warning("CARLA's agents API is not available.")
 
-KEY_VALUE = "controllers"
-
 
 class Controller(Actor):
-    def __init__(
-        self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: list[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+    KEY_VALUE = "controllers"
 
-    def get_static_metadata(self):
-        actor_data = {}
-        actor_data["type"] = self.carla_actor.type_id
+    def __pre_spawn__(self) -> bool:
+        # Controllers are always attached to other actors and so should have an alive parent.
+        return self.parent is not None and self.parent.is_alive
 
-        return (actor_data, KEY_VALUE)
+    @property
+    def is_alive(self):
+        return self.parent.is_alive
 
-    def get_dynamic_metadata(self):
-        actor_data, _ = super().get_dynamic_metadata()
+    def step(self) -> carla.command.ApplyTransform:
+        return None
 
-        return (actor_data, KEY_VALUE)
+    def get_dynamic_metadata(self, **metadata) -> dict[dict[str, Any], str]:
+        # Controllers have no dynamic metadata.
+        return {self.KEY_VALUE: {}}
+
+
+class VehicleController(Controller):
+    TYPE = "controller.vehicle"
+
+    def __init__(self, **kwargs):
+        super().__init__(None, **kwargs)
+
+    @property
+    def id(self):
+        return self.parent.id
+
+    @property
+    def name(self):
+        return f"{self.TYPE}.{self.id}"
+
+    def __post_spawn__(self) -> bool:
+        # setup vehicle
+        self.parent.carla_actor.set_autopilot(True, self.context.simulation_params.traffic_manager_port)
+        self.parent.carla_actor.set_light_state(carla.VehicleLightState.NONE)
+
+        return True
 
 
 class WalkerController(Controller):
     def __init__(
         self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: list[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
-        *args,
-        **kwargs,
+        max_speed: float = None,
+        **kwargs
     ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+        super().__init__("controller.ai.walker", **kwargs)
 
-        self.blueprint = BPWalkerAIController(*args, **kwargs)
+        if max_speed is None:
+            max_speed = 1 + random.random() # between 1-2 m/s
+        self.max_speed = max_speed
 
-    def __pre_spawn__(self):
-        self.transform = Transform()
+    @property
+    def is_alive(self):
+        # Since this controller is an Actor, we also need to return our actor's aliveness
+        if self._carla_actor is None:
+            return False
+        return self._carla_actor.is_alive and self.parent.is_alive
 
-        if self.destination_transform is None:
-            self.destination_transform = self.context.get_spawn_point(from_navigation=True)
-            logger.debug(
-                f"Selected random destination point (none provided) x: {self.destination_transform.location.x}, "
-                f"y: {self.destination_transform.location.y}, z: {self.destination_transform.location.z}"
-            )
-
-        assert isinstance(self.blueprint, BPWalkerAIController)
-        return True
+    def __pre_spawn__(self) -> bool:
+        # FIXME: Should these just go in __init__?
+        # If we have no destination, then randomly generate one from navigation.
+        if self.transform is None:
+            self.transform = self.context.get_spawn_point(from_navigation=True)
+        return super().__pre_spawn__()
 
     def __post_spawn__(self) -> bool:
-        if not super().__post_spawn__():
-            return False
-
         # setup walker's controller
         self.carla_actor.start()
-        self.carla_actor.go_to_location(self.destination_transform.location)
-        self.carla_actor.set_max_speed(self.blueprint.max_speed)
+        self.carla_actor.go_to_location(self.transform.location)
+        self.carla_actor.set_max_speed(self.max_speed)
 
         return True
 
     def destroy(self) -> bool:
         self.carla_actor.stop()
-        if not super().destroy():
-            return False
-
-        return True
+        return super().destroy()
 
     def get_static_metadata(self):
-        actor_data, _ = super().get_static_metadata()
-        actor_data["max_speed"] = self.blueprint.max_speed
-
-        return (actor_data, KEY_VALUE)
+        return super().get_static_metadata(max_speed=self.max_speed)
 
 
 class SensorController(Controller):
@@ -132,74 +119,32 @@ class SensorController(Controller):
 
     def __init__(
         self,
-        context: Context = Context(),
-        transform: Transform = None,
-        destination_transform: Transform = None,
-        attachments: list[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
         motion_params: MotionParameters = None,
-        *args,
         **kwargs,
     ) -> None:
-        super().__init__(
-            context,
-            transform,
-            destination_transform,
-            attachments,
-            attachment_type,
-            *args,
-            **kwargs,
-        )
+        super().__init__(None, **kwargs)
 
         self._motion_params = motion_params
-        self._rotation = self.transform.rotation if self.transform else Rotation()
 
     @property
     def id(self):
-        if self.parent is not None:
-            return self.parent.id
-
-        return self._id
-
-    @id.setter
-    def id(self, value):
-        self._id = value
+        return self.parent.id
 
     @property
     def name(self):
         return f"{self.TYPE}.{self.id}"
 
-    @name.setter
-    def name(self, value):
-        # ignore new values to name attribute. This attribute depends on the
-        # actor's id
-        pass
-
-    def __pre_spawn__(self) -> bool:
-        assert self.parent is not None
-
-        # set the sensor's position
-        self.transform = self.parent.transform
-        self.destination_transform = self.parent.destination_transform
-        self._rotation = self.transform.rotation
-
-        return True
-
-    def spawn(self) -> bool:
-        if not self.__pre_spawn__():
-            logger.error("Pre-spawn process failed.")
-            return False
-
+    def __post_spawn__(self) -> bool:
         sim_map = self.context.world.get_map()
 
         # Get the nearest waypoints in the center of a Driving lane.
         start_waypoint = sim_map.get_waypoint(
-            location=self.transform.location,
+            location=self.parent.transform.location,
             project_to_road=True,
             lane_type=self._motion_params.lane_type,
         )
         end_waypoint = sim_map.get_waypoint(
-            location=self.destination_transform.location,
+            location=self.transform.location,
             project_to_road=True,
             lane_type=self._motion_params.lane_type,
         )
@@ -231,13 +176,6 @@ class SensorController(Controller):
             index = 1 if len(self.route) > 0 else 0
             self.route += subroute[index:]
 
-        if not self.__post_spawn__():
-            logger.error("Post-spawn process failed.")
-            return False
-
-        return True
-
-    def __post_spawn__(self) -> bool:
         # validate generated route
         # remove consecutive points that are too close
         # NOTE: the reason to do this filtering to the generated route is due to the
@@ -261,63 +199,50 @@ class SensorController(Controller):
 
         return True
 
-    def spawn_command(self, parent: carla.Actor = None) -> carla.Command:
-        # SensorController is not spawned via CARLA
-        return None
-
     def step(self) -> carla.Transform:
         waypoint = next(self.route_iter, None)
 
         # build the next sensor position based on the route's waypoint
         # and sensor Z position and rotation.
-        if self.parent is not None:
-            sensor_transform = self.parent.transform
-            waypoint_transform = waypoint[0].transform
+        sensor_transform = self.parent.transform
+        waypoint_transform = waypoint[0].transform
 
-            # the motion parameter's elevation value overrides the transformer's Z value
-            elevation = (
-                sensor_transform.location.z
-                if self._motion_params.elevation == 0
-                else self._motion_params.elevation
-            )
+        # the motion parameter's elevation value overrides the transformer's Z value
+        elevation = (
+            sensor_transform.location.z
+            if self._motion_params.elevation == 0
+            else self._motion_params.elevation
+        )
 
-            next_location = carla.Location(
-                x=waypoint_transform.location.x,
-                y=waypoint_transform.location.y,
-                z=elevation,
-            )
+        next_location = carla.Location(
+            x=waypoint_transform.location.x,
+            y=waypoint_transform.location.y,
+            z=elevation,
+        )
 
-            next_pitch = waypoint_transform.rotation.pitch + self._rotation.pitch
-            next_yaw = waypoint_transform.rotation.yaw + self._rotation.yaw
-            next_roll = waypoint_transform.rotation.roll + self._rotation.roll
-            next_rotation = carla.Rotation(
-                pitch=next_pitch,
-                yaw=next_yaw,
-                roll=next_roll,
-            )
+        next_pitch = waypoint_transform.rotation.pitch + self.transform.rotation.pitch
+        next_yaw = waypoint_transform.rotation.yaw + self.transform.rotation.yaw
+        next_roll = waypoint_transform.rotation.roll + self.transform.rotation.roll
+        next_rotation = carla.Rotation(
+            pitch=next_pitch,
+            yaw=next_yaw,
+            roll=next_roll,
+        )
 
-            next_transform = carla.Transform(location=next_location, rotation=next_rotation)
+        next_transform = carla.Transform(location=next_location, rotation=next_rotation)
 
-            return next_transform
-        else:
-            return None
+        # update sensor transform
+        self.parent.transform = next_transform
 
-    def is_alive(self) -> bool:
-        return True
+        # build the apply transform command
+        command = carla.command.ApplyTransform(self.parent.carla_actor, next_transform)
+        return command
 
     def destroy(self) -> bool:
-        self.route = []
-        return True
+        self.route = []  # FIXME: why is this necessary?
+        return super().destroy()
 
     def get_static_metadata(self):
-        actor_data = {}
-        actor_data["type"] = self.TYPE
-        actor_data["sampling_resolution"] = self._motion_params.sampling_resolution
-
-        return (actor_data, KEY_VALUE)
-
-    def get_dynamic_metadata(self):
-        actor_data = {}
-        actor_data["type"] = self.TYPE
-
-        return (actor_data, KEY_VALUE)
+        return super().get_static_metadata(
+            blueprint_id=self.TYPE, sampling_resolution=self._motion_params.sampling_resolution
+        )

@@ -1,4 +1,10 @@
-#! /bin/bash
+#! /bin/bash -e
+
+#
+# Copyright (C) 2024 Intel Corporation
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
 
 # ==============================================================================
 # -- Parse arguments -----------------------------------------------------------
@@ -6,18 +12,22 @@
 
 DOC_STRING="Build the CARLA PythonAPI client."
 
-USAGE_STRING="Usage: $0 [--python-version=VERSION]"
+USAGE_STRING="Usage: $0 [--carla-version=VERSION] [--python-version=VERSION]"
 
-OPTS=`getopt -o h --long help,python-version: -n 'parse-options' -- "$@"`
+OPTS=`getopt -o h --long help,carla-version:,python-version: -n 'parse-options' -- "$@"`
 
 eval set -- "$OPTS"
 
-PY_VERSION=3
+CARLA_VERSION=0.9.13
+PYTHON_VERSION=3
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --carla-version )
+      CARLA_VERSION="$2";
+      shift ;;
     --python-version )
-      PY_VERSION="$2";
+      PYTHON_VERSION="$2";
       shift ;;
     -h | --help )
       echo "$DOC_STRING"
@@ -30,59 +40,24 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ==============================================================================
-# -- Build Docker image --------------------------------------------------------
+# -- Build CARLA PythonAPI in Docker image -------------------------------------
 # ==============================================================================
 
-DOCKER_TAG="carla-build:py$PY_VERSION"
+DOCKER_TAG="carla-client:$CARLA_VERSION-py$PYTHON_VERSION"
 echo "Docker tag $DOCKER_TAG"
 
-if [[ "$(docker images -q $DOCKER_TAG 2> /dev/null)" == "" ]]; then
-    echo "Docker image $DOCKER_TAG does not exist!"
-
-    docker build \
-        --no-cache \
-        --build-arg PYTHONVERSION=$PY_VERSION \
-        --force-rm \
-        --tag $DOCKER_TAG \
-        --file Dockerfile-base .
-fi
+# FIXME: This will only work from the build directory because of how COPY works
+docker build \
+    --build-arg PYTHON_VERSION=$PYTHON_VERSION \
+    --force-rm \
+    --tag $DOCKER_TAG \
+    --target build \
+    --file Dockerfile-oscar-datagen ..
 
 # ==============================================================================
-# -- Set up environment --------------------------------------------------------
+# -- Copy Carla PythonAPI wheel from Docker image ------------------------------
 # ==============================================================================
 
-BUILD_FOLDER="build"
-
-if [ ! -d "$BUILD_FOLDER" ]; then
-    mkdir -p $BUILD_FOLDER
-fi
-
-pushd ${BUILD_FOLDER} >/dev/null
-
-# ==============================================================================
-# -- Build CARLA PythonAPI -----------------------------------------------------
-# ==============================================================================
-
-CARLA_SIM_VERSION=0.9.13
-CARLA_BASENAME="carla"
-CARLA_REPO="$BUILD_FOLDER/$CARLA_BASENAME"
-
-if [ ! -d "$CARLA_BASENAME" ]; then
-    git clone -b ${CARLA_SIM_VERSION} --depth 1 https://github.com/carla-simulator/carla
-
-    cp -r ../patches/* $CARLA_BASENAME
-
-    pushd ${CARLA_BASENAME} >/dev/null
-
-    git apply *.patch
-
-    popd >/dev/null
-fi
-
-popd >/dev/null
-
-docker run \
-    --rm \
-    --net=host \
-    --volume $(pwd)/$CARLA_REPO:/opt/$CARLA_BASENAME \
-    ${DOCKER_TAG} make PythonAPI ARGS="--python-version=$PY_VERSION"
+docker create --name carla-build $DOCKER_TAG
+docker cp carla-build:"/workspace/PythonAPI/carla/dist/" .
+docker rm carla-build

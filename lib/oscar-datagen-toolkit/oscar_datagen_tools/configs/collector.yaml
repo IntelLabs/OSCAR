@@ -2,9 +2,15 @@
 
 # specify here default simulation configuration
 defaults:
-  - context: default.yaml
-  - paths: default.yaml
-  - hydra: default.yaml
-  - simulation: null
+  - _self_
+  - context: default
+  - paths: default
+  - hydra: default
+  - simulation: ???
 
 max_frames: ???
+
+# simulation configs can specify actors as dict or they can specify spawn_actors
+# as a list. the default value of spawn_actors turns actors into a list.
+actors: {}
+spawn_actors: ${oc.dict.values:actors}

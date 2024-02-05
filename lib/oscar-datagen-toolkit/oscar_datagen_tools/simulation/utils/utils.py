@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -7,32 +7,35 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 import time
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import coloredlogs
+import cv2
 import numpy as np
 from carla import Location, Transform, WorldSnapshot
 from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig
+from scipy import ndimage
 
 if TYPE_CHECKING:
     from ..actors import Actor
 
 __all__ = [
     "actors_still_alive",
-    "run_loop",
-    "run_request",
-    "run_spawn",
+    "handle_keyboard_interrupt",
     "save_static_metadata",
     "save_dynamic_metadata",
     "is_jsonable",
     "is_equal",
     "replace_modality_in_path",
-    "get_number_of_tiles",
     "transform",
     "generate_uuid",
+    "load_image",
 ]
 
 RETRY = 5
@@ -41,68 +44,7 @@ logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.INFO)
 
 
-def run_request(func: Callable[[Any], Any]) -> bool:
-    """Decorator to handle the requests to the CARLA server.
-
-    Args:
-        func (function): Function to be wrapped by the decorator.
-
-    Returns:
-        bool: True if the function was executed correctly or False otherwise.
-    """
-
-    def wrapper(*args):
-        instance = args[0]
-        retry = instance.client_params.retry
-
-        for i in range(retry):
-            try:
-                func(*args)
-                return True
-            except RuntimeError as error:
-                logger.exception(error)
-                logger.error(f"CARLA connection failed on attempt {i + 1} of {retry}")
-                time.sleep(5)
-
-        return False
-
-    return wrapper
-
-
-def run_spawn(func: Callable[[Any], Any]) -> bool:
-    """Decorator to handle the spawn of actors.
-
-    Args:
-        func (function): Function to be wrapped by the decorator.
-
-    Returns:
-        bool: True if the function was executed correctly or False otherwise.
-    """
-
-    def wrapper(*args):
-        instance = args[0]
-
-        for i in range(RETRY):
-            try:
-                return func(*args)
-            except RuntimeError as error:
-                logger.debug(error)
-                logger.debug(
-                    f"Spawn process failed with actor {instance} on attempt {i + 1} of {RETRY}"
-                )
-
-                # reset actor's transforms
-                # Note: the most common reason for this process to fail is when
-                # traying to spwan in a location too close to another actor.
-                instance.transform = None
-                instance.destination_transform = None
-
-        return False
-
-    return wrapper
-
-
-def run_loop(func: Callable[[Any], Any]) -> Any:
+def handle_keyboard_interrupt(func: Callable[[Any], Any]) -> Any:
     """Decorator to handle data collection loop.
 
     Args:
@@ -114,11 +56,13 @@ def run_loop(func: Callable[[Any], Any]) -> Any:
 
     def wrapper(*args, **kwargs):
         try:
-            func(*args, **kwargs)
+            return func(*args, **kwargs)
         except KeyboardInterrupt:
             logger.info("Cancelled by user. Bye!")
+            return False
         except Exception as error:
             logger.exception(error)
+            return False
 
     return wrapper
 
@@ -134,7 +78,7 @@ def actors_still_alive(actors: list[Actor]):
     """
     alive_actors = 0
     for actor in actors:
-        if not actor.is_alive():
+        if not actor.is_alive:
             logger.info(f"Actor {actor.name} is dead!")
         else:
             alive_actors += 1
@@ -165,8 +109,8 @@ def __save_metadata_file__(
     if not path.exists():
         path.mkdir(parents=True)
 
-    metadata_static_file = path / filename
-    with open(metadata_static_file, "w") as json_file:
+    metadata_file = path / filename
+    with open(metadata_file, "w") as json_file:
         json.dump(metadata, json_file, indent=1)
 
 
@@ -180,15 +124,15 @@ def save_static_metadata(actors: list[Actor], path: Path):
     Returns:
         None
     """
-    metadata_static = {}
-    metadata_static["actors"] = {}
-    metadata_static["cameras"] = {}
-    metadata_static["controllers"] = {}
-    metadata_static["patches"] = {}
-
+    # build the metadata
+    metadata_static = defaultdict(dict)
     for actor in actors:
-        metadata, key_value = actor.get_static_metadata()
-        metadata_static[key_value][actor.id] = metadata
+        actor_metadata = actor.get_static_metadata()
+        # here is assumed that the root key correspond to the actor's category
+        category = next(iter(actor_metadata))
+
+        # include actor's metadata
+        metadata_static[category].update(actor_metadata[category])
 
     __save_metadata_file__(metadata_static, path=path)
 
@@ -207,17 +151,17 @@ def save_dynamic_metadata(
     Returns:
         None
     """
-    metadata_dynamic = {}
+    # build the metadata
+    metadata_dynamic = defaultdict(dict)
     metadata_dynamic["frame_id"] = local_frame_num
     metadata_dynamic["timestamp"] = snapshot.timestamp.elapsed_seconds
-    metadata_dynamic["actors"] = {}
-    metadata_dynamic["cameras"] = {}
-    metadata_dynamic["controllers"] = {}
-    metadata_dynamic["patches"] = {}
-
     for actor in actors:
-        metadata, key_value = actor.get_dynamic_metadata()
-        metadata_dynamic[key_value][actor.id] = metadata
+        actor_metadata = actor.get_dynamic_metadata()
+        # here is assumed that the root key correspond to the actor's category
+        category = next(iter(actor_metadata))
+
+        # include actor's metadata
+        metadata_dynamic[category].update(actor_metadata[category])
 
     __save_metadata_file__(metadata_dynamic, filename=f"{local_frame_num:08}.json", path=path)
 
@@ -253,11 +197,11 @@ def is_equal(transform_a: Transform, transform_b: Transform, threshold: float = 
     # If any of the parameters differ more than the threshold value the
     # transformers are considered different.
     if (
-        abs(transform_a.location.x - transform_b.location.x) > threshold or 
-        abs(transform_a.location.y - transform_b.location.y) > threshold or 
-        abs(transform_a.location.z - transform_b.location.z) > threshold or 
-        abs(transform_a.rotation.pitch - transform_b.rotation.pitch) > threshold or 
-        abs(transform_a.rotation.yaw - transform_b.rotation.yaw) > threshold or 
+        abs(transform_a.location.x - transform_b.location.x) > threshold or
+        abs(transform_a.location.y - transform_b.location.y) > threshold or
+        abs(transform_a.location.z - transform_b.location.z) > threshold or
+        abs(transform_a.rotation.pitch - transform_b.rotation.pitch) > threshold or
+        abs(transform_a.rotation.yaw - transform_b.rotation.yaw) > threshold or
         abs(transform_a.rotation.roll - transform_b.rotation.roll) > threshold
     ):
         return False
@@ -277,22 +221,6 @@ def replace_modality_in_path(path: Path, modality: str) -> str:
         str: Path' string with the desired modality.
     """
     return str(path).format(modality_type=modality)
-
-
-def get_number_of_tiles(scale: float) -> int:
-    """Return the number of tiles to create according to the specified scale factor.
-
-    Args:
-        scale (float): scale value.
-
-    Returns:
-        int: Number of tiles to scale a  patch.
-    """
-    tiles = int(scale)
-    if scale - tiles > 0:
-        tiles += 1
-
-    return tiles
 
 
 def transform(object_transform: Transform, center_transform: Transform) -> Transform:
@@ -363,3 +291,17 @@ def generate_uuid(seed: int = None) -> int:
     random_uuid_int = sum(bit << (32 * i) for i, bit in enumerate(random_bits))
 
     return int(uuid.UUID(int=random_uuid_int))
+
+
+def load_image(path: Path) -> ndimage:
+    """Loads an image with OpenCV.
+
+    Parameters:
+        path : Path
+            Path to image.
+    Returns
+        Loaded image.
+    """
+    image = cv2.imread(path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    return image

@@ -10,22 +10,22 @@ context:
   _target_: oscar_datagen_tools.simulation.Context
   client_params:
     _target_: oscar_datagen_tools.simulation.parameters.ClientParameters
-    host: 127.0.01
+    host: 127.0.0.1
     port: 2000
-    timeout: 10.0
-    retry: 10
-    seed: 50
+    timeout: 10.0 #10.0
+    retry: 5
+    seed: 45 #50
   simulation_params:
     _target_: oscar_datagen_tools.simulation.parameters.SimulationParameters
     traffic_manager_port: 8000
     respawn: true
     townmap: Town10HD
-    warmup: 250
+    warmup: 19 #50
     interval: 1
   sync_params:
     _target_: oscar_datagen_tools.simulation.parameters.SyncParameters
-    fps: 30.0
-    timeout: 2.0
+    fps: 150.0
+    timeout: 3.0
   weather_params:
     _target_: carla.WeatherParameters
     cloudiness: 0.0
@@ -38,52 +38,62 @@ context:
     fog_distance: 0.0
     wetness: 0.0
 
-max_frames: 10
-
-actors_generator:
-  _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
-  number_of_vehicles: 10
-  number_of_walkers: 30
+max_frames: 1
 
 spawn_actors:
   - _target_: oscar_datagen_tools.simulation.actors.Camera
-    image_size_x: 1280
-    image_size_y: 960
+    modalities: [rgb, instance_segmentation]
+    # We turn off recursive instantiation so that Camera will generate
+    # a new controller for each sensor.
+    _recursive_: False
+    image_size_x: 800
+    image_size_y: 600
     speed: 1.0
-    motion_blur_intensity: 0.0
-    motion_blur_max_distortion: 0.0
-    sensors_blueprints:
-      - _target_: oscar_datagen_tools.simulation.blueprints.Depth
-      - _target_: oscar_datagen_tools.simulation.blueprints.RGB
-        gamma: 2.2
-      - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
-    motion_params:
-      _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
-      sampling_resolution: 10
-      num_waypoints: 4
+    gamma: 2.2
     transform:
       _target_: carla.Transform
       location:
-        _target_: oscar_datagen_tools.simulation.actors.Location
-        x: [-100.0, 100.0]
-        y: [-100.0, 100.0]
-        z: [20.0, 40.0]
+        _target_: carla.Location
+        x: -60
+        y: 1.0
+        z: 2.0
       rotation:
-        _target_: oscar_datagen_tools.simulation.actors.Rotation
-        pitch: [-90.0, -45.0]
-        yaw: [0, 360]
+        _target_: carla.Rotation
+    attachments:
+      - _target_: oscar_datagen_tools.simulation.actors.SensorController
+        motion_params:
+          _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
+          sampling_resolution: 1
+        transform:
+          _target_: carla.Transform
+          location:
+            _target_: carla.Location
+            x: 45.0
+            y: 1.0
+            z: 2.0
+
+  - _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _actor_: oscar_datagen_tools.simulation.actors.Vehicle
+    seed: 0
+    count: 30
+
+  - _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _actor_: oscar_datagen_tools.simulation.actors.Walker
+    seed: 0
+    count: 60
 ```
 
 To consult the available options and its default values, run:
 
 ```bash
-./scritps/collect.sh --help
+./scripts/collect.sh --help
 ```
 
 with the following output:
+
 ```bash
 Collect new data from a CARLA sim server.
-Usage: ./scritps/collect.sh [--scale=NUM] [CONFIGURATION-FILE]
+Usage: ./scripts/collect.sh [--scale=NUM] [CONFIGURATION-FILE]
 oscar_data_saver is powered by Hydra.
 
 == Configuration groups ==

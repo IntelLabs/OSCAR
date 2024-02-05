@@ -7,13 +7,10 @@ now_dir: ${now:%Y-%m-%d}_${now:%H-%M-%S-%f}
 root_dir: ${oc.env:PROJECT_ROOT}
 
 # path to data directory
-data_dir: ${paths.root_dir}/data/{modality_type}/${paths.now_dir}
-
-# path to textures directory
-texture_dir: ${paths.root_dir}/data/textures
+data_dir: ${paths.root_dir}/data/${hydra:runtime.choices.simulation}/${paths.now_dir}/{modality_type}
 
 # path to logging directory
-log_dir: ${paths.root_dir}/logs/${paths.now_dir}
+log_dir: ${paths.root_dir}/data/${hydra:runtime.choices.simulation}/${paths.now_dir}
 
 # path to output directory, created dynamically by hydra
 output_dir: ${hydra:runtime.output_dir}

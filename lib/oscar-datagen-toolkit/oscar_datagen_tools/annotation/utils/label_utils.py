@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -68,7 +68,9 @@ class Mask:
 
 
 class CategoriesHandler:
-    def __init__(self, user_categories: List[str], closing: bool):
+    def __init__(
+        self, user_categories: List[str] = ["Pedestrian", "Vehicle"], closing: bool = False
+    ):
         self.closing = closing
 
         self.categories = []

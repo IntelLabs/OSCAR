@@ -19,15 +19,13 @@ spawn_actors:
         yaw: -180.0
 
   - _target_: oscar_datagen_tools.simulation.actors.Camera
+    modalities: [rgb, instance_segmentation]
+    # We turn off recursive instantiation so that Camera will generate
+    # a new controller for each sensor.
+    _recursive_: False
     image_size_x: 800
     image_size_y: 600
-    sensors_blueprints:
-      - _target_: oscar_datagen_tools.simulation.blueprints.RGB
-        gamma: 2.2
-      - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
-    motion_params:
-      _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
-      sampling_resolution: 1
+    gamma: 2.2
     transform:
       _target_: carla.Transform
       location:
@@ -38,10 +36,15 @@ spawn_actors:
       rotation:
         _target_: carla.Rotation
         yaw: 0.0
-    destination_transform:
-      _target_: carla.Transform
-      location:
-        _target_: carla.Location
-        x: -92
-        y: 170.0
-        z: 1.6
+    attachments:
+      - _target_: oscar_datagen_tools.simulation.actors.SensorController
+        motion_params:
+          _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
+          sampling_resolution: 1
+        transform:
+          _target_: carla.Transform
+          location:
+            _target_: carla.Location
+            x: -92
+            y: 170.0
+            z: 1.6

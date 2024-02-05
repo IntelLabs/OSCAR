@@ -70,7 +70,7 @@ def multistep_resampling(image, pipe, desired_start, num_steps, num_channels, de
 
     for idx, t in enumerate(inference_timesteps):
         # Predict noise
-        model_output = pipe.unet(recovered_image, t).sample
+        model_output = checkpoint(pipe.unet, recovered_image, t, use_reentrant=False).sample
 
         # Reverse diffusion
         recovered_image = pipe.scheduler.step(model_output, t, recovered_image).prev_sample

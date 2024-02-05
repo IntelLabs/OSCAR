@@ -2,23 +2,16 @@
 
 max_frames: 100
 
-actors_generator:
-  _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
-  number_of_vehicles: 30
-  number_of_walkers: 60
-
 spawn_actors:
   - _target_: oscar_datagen_tools.simulation.actors.Camera
+    modalities: [rgb, instance_segmentation]
+    # We turn off recursive instantiation so that Camera will generate
+    # a new controller for each sensor.
+    _recursive_: False
     image_size_x: 800
     image_size_y: 600
     speed: 1.0
-    sensors_blueprints:
-      - _target_: oscar_datagen_tools.simulation.blueprints.RGB
-        gamma: 2.2
-      - _target_: oscar_datagen_tools.simulation.blueprints.InstanceSegmentation
-    motion_params:
-      _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
-      sampling_resolution: 1
+    gamma: 2.2
     transform:
       _target_: carla.Transform
       location:
@@ -28,10 +21,25 @@ spawn_actors:
         z: 2.0
       rotation:
         _target_: carla.Rotation
-    destination_transform:
-      _target_: carla.Transform
-      location:
-        _target_: carla.Location
-        x: 45.0
-        y: 1.0
-        z: 2.0
+    attachments:
+      - _target_: oscar_datagen_tools.simulation.actors.SensorController
+        motion_params:
+          _target_: oscar_datagen_tools.simulation.parameters.MotionParameters
+          sampling_resolution: 1
+        transform:
+          _target_: carla.Transform
+          location:
+            _target_: carla.Location
+            x: 45.0
+            y: 1.0
+            z: 2.0
+
+  - _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _actor_: oscar_datagen_tools.simulation.actors.Vehicle
+    seed: 0
+    count: 30
+
+  - _target_: oscar_datagen_tools.simulation.actors.ActorsGenerator
+    _actor_: oscar_datagen_tools.simulation.actors.Walker
+    seed: 0
+    count: 60

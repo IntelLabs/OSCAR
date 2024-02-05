@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -11,10 +11,11 @@ from typing import Any, Dict, List
 
 import carla
 import coloredlogs
-from carla import AttachmentType, Transform
+from numpy import random
+from carla import Transform, ActorAttributeType
 
 from ..context import Context
-from ..utils import run_spawn
+from ..utils import is_jsonable
 
 __all__ = ["Actor"]
 
@@ -23,35 +24,74 @@ coloredlogs.install(level=logging.INFO)
 
 
 class Actor:
+    KEY_VALUE = "actors"
+
     def __init__(
         self,
+        blueprint: carla.ActorBlueprint | str = None,
+        *,
         context: Context = Context(),
         transform: Transform = None,
-        destination_transform: Transform = None,
         attachments: list[carla.Actor] = None,
-        attachment_type: AttachmentType = AttachmentType.Rigid,
-        *args,
-        **kwargs,
+        **blueprint_attributes,
     ) -> None:
-        self.carla_actor = None
-        self.blueprint = None
+        self._carla_actor = None
+        self.blueprint = blueprint
         self.context = context
         self.transform = transform
-        self.destination_transform = destination_transform
-        self.id = 0
-        self.name = ""
-        self.parent = None
-        self.attachments = attachments
-        self.attachment_type = attachment_type
-
-        if self.attachments is None:
-            self.attachments = []
+        self._id = None
+        self._name = None
+        self._parent = None
+        self.attachments = attachments or []
 
         for attachment in self.attachments:
-            # avoid override an already set parent. This is specially relevant
-            # for actors that share attachments.
-            if attachment.parent is None:
-                attachment.parent = self
+            attachment.parent = self
+
+        if isinstance(blueprint, str):
+            blueprints = context.blueprint_library.filter(blueprint)
+            if len(blueprints) == 0:
+                raise AttributeError(f"Could not find \"{blueprint}\" blueprint in CARLA.")
+            self.blueprint = random.choice(blueprints)
+
+        # set blueprint's attributes
+        if self.blueprint is not None:
+            for attribute, value in blueprint_attributes.items():
+                if self.blueprint.has_attribute(attribute):
+                    self.blueprint.set_attribute(attribute, str(value))
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        if self._parent is not None:
+            raise AttributeError("Actors can have only one parent!")
+        self._parent = value
+
+    def __getattr__(self, name):
+        # Check if blueprint has attribute
+        if self.blueprint is None or not self.blueprint.has_attribute(name):
+            return object.__getattribute__(self, name)
+
+        value = self.blueprint.get_attribute(name)
+
+        if value.type == ActorAttributeType.Bool:
+            return value.as_bool()
+
+        if value.type == ActorAttributeType.Int:
+            return value.as_int()
+
+        if value.type == ActorAttributeType.Float:
+            return value.as_float()
+
+        if value.type == ActorAttributeType.String:
+            return value.as_str()
+
+        if value.type == ActorAttributeType.RGBColor:
+            return value.as_color()
+
+        return value
 
     def get_transform(self):
         if self.carla_actor is not None:
@@ -63,121 +103,110 @@ class Actor:
         if self.carla_actor is not None:
             self.carla_actor.set_transform(value)
 
-    def __pre_spawn__(self) -> bool:
-        assert self.context is not None
-        assert self.context.world is not None
+    @property
+    def id(self):
+        if self._id:
+            return self._id
+        return self.carla_actor.id
 
-        # verify transforms
-        if self.transform is None:
-            self.transform = self.context.get_spawn_point()
-            if self.transform is None:
-                logger.error(
-                    f"None of the {self.context.get_number_of_spawn_points()} spawn points available"
-                )
-                return False
+    @id.setter
+    def id(self, value):
+        self._id = value
 
-            logger.debug(
-                f"Selected random spawn point (none provided) x: {self.transform.location.x}, "
-                f"y: {self.transform.location.y}, z: {self.transform.location.z} "
-                f"roll: {self.transform.rotation.roll}, pitch: {self.transform.rotation.pitch}, yaw: {self.transform.rotation.yaw}"
-            )
-        if self.destination_transform is None:
-            self.destination_transform = self.transform
-            logger.debug(
-                f"Selected random destination point (none provided) x: {self.destination_transform.location.x}, "
-                f"y: {self.destination_transform.location.y}, z: {self.destination_transform.location.z}"
-            )
+    @property
+    def name(self):
+        if self._name:
+            return self._name
+        return f"{self.carla_actor.type_id}.{self.carla_actor.id}"
 
-        return True
+    @name.setter
+    def name(self, value):
+        self._name = value
 
-    def __post_spawn__(self) -> bool:
-        self.id = self.carla_actor.id
-        self.name = f"{self.carla_actor.type_id}.{self.carla_actor.id}"
-        return True
-
-    @run_spawn
     def spawn(self) -> bool:
-        if not self.__pre_spawn__():
-            logger.error("Pre-spawn process failed.")
-            return False
+        ret = True
+        if not getattr(self, "__pre_spawn__", lambda: True)():
+            logger.error(f"Pre-spawn process failed: {self}")
+            ret = False
 
-        # setup actor's blueprint
-        assert self.blueprint is not None
-        if not self.blueprint.setup(self.context.blueprint_library):
-            logger.error("Blueprint setup failed.")
-            return False
+        # if __pre_spawn__ failed, force an spawn error
+        command = self._spawn_command() if ret else carla.command.SpawnActor()
+        response = yield command
 
-        # spawn actor
-        attach_to = self.parent.carla_actor if self.parent is not None else None
-        self.carla_actor = self.context.world.spawn_actor(
-            self.blueprint.carla_blueprint,
-            self.transform,
-            attach_to=attach_to,
-            attachment_type=self.attachment_type,
-        )
+        # only log error if we haven't already errored and we have a blueprint
+        # some actors don't have blueprints, which causes an error when spawning.
+        if ret and response.has_error() and self.blueprint is not None:
+            logging.warning(f"{self}: {response.error}")
+            ret = False
 
-        # spawn attachments
-        for attachment in self.attachments:
-            # verify that the attachment is linked to the actor. This is relevant in the case of the
-            # Camera actor where the sensors share the attachments.
-            if id(self) != id(attachment.parent):
-                continue
+        # get_actor returns None when actor_id cannot be found
+        self._carla_actor = self.context.world.get_actor(response.actor_id)
 
-            if not attachment.spawn():
-                return False
+        # only call __post_spawn__ if __pre_spawn__ and response didn't fail
+        # this means code in __post_spawn__ can rely upon there being a carla_actor
+        if ret and not getattr(self, "__post_spawn__", lambda: True)():
+            logger.error(f"Post-spawn process failed: {self}")
+            ret = False
 
-        if not self.__post_spawn__():
-            logger.error("Post-spawn process failed.")
-            return False
+        return ret
 
-        return True
+    def _spawn_command(self) -> carla.Command:
+        if self.blueprint is None:
+            # This will cause an "invalid actor description" error, but we just
+            # ignore it in spawn.
+            return carla.command.SpawnActor()
+        
+        if self.transform is None:
+            raise AttributeError("CARLA actor must have a transform assigned!")
 
-    def __post_spawn_command__(self, command):
-        return command
-
-    def spawn_command(self) -> carla.Command:
-        if not self.__pre_spawn__():
-            logger.error("Pre-spawn process failed.")
-            return None
-
-        # setup actor's blueprint
-        assert self.blueprint is not None
-        if not self.blueprint.setup(self.context.blueprint_library):
-            logger.error("Blueprint setup failed.")
-            return None
-
-        command = None
-        if self.parent and self.parent.carla_actor:
-            parent = self.parent.carla_actor
-            command = carla.command.SpawnActor(
-                self.blueprint.carla_blueprint, self.transform, parent
+        if self.parent and self.parent.is_alive:
+            # NOTE: You would think passing parent=None to this command would
+            #       work, but it causes Python to crash.
+            return carla.command.SpawnActor(
+                self.blueprint, self.transform, self.parent.carla_actor
             )
-        elif not self.parent:
-            command = carla.command.SpawnActor(self.blueprint.carla_blueprint, self.transform)
+        else:
+            return carla.command.SpawnActor(
+                self.blueprint, self.transform
+            )
 
-        command = self.__post_spawn_command__(command)
+    @property
+    def carla_actor(self) -> carla.Actor:
+        assert self._carla_actor is not None and self._carla_actor.is_alive, "Calls to carla_actor should be protected by a check on is_alive!"
+        return self._carla_actor
 
-        return command
-
-    def update_carla_actor(self, actor: carla.Actor) -> None:
-        self.carla_actor = actor
-
-        if not self.__post_spawn__():
-            logger.error("Post-spawn process failed.")
-
+    @property
     def is_alive(self) -> bool:
-        assert self.carla_actor is not None
-        return self.carla_actor.is_alive
+        if self._carla_actor is None:
+            return False
+        return self._carla_actor.is_alive
 
-    def destroy(self) -> bool:
-        return self.carla_actor.destroy()
+    def destroy(self) -> carla.Command:
+        actor_id = 0
+        if self._carla_actor is not None:
+            actor_id = self._carla_actor.id
+            self._carla_actor = None
 
-    def get_static_metadata(self) -> dict[dict[str, Any], str]:
-        return ({}, "")
+        return carla.command.DestroyActor(actor_id)
 
-    def get_dynamic_metadata(self) -> dict[dict[str, Any], str]:
-        actor_data = {}
-        actor_data["type"] = self.carla_actor.type_id
+    def get_static_metadata(self, **extra_metadata) -> dict[dict[str, Any], str]:
+        actor_data = dict(extra_metadata)
+
+        if self.blueprint:
+            actor_data["blueprint_id"] = self.blueprint.id
+            for attribute in iter(self.blueprint):
+                name = attribute.id
+                value = getattr(self, name)
+                if is_jsonable(value):
+                    actor_data[name] = value
+
+        return {self.KEY_VALUE: {self.id: actor_data}}
+
+    def get_dynamic_metadata(self, **extra_metadata) -> dict[dict[str, Any], str]:
+        actor_data = dict(extra_metadata)
+
+        if self.blueprint:
+            actor_data["blueprint_id"] = self.blueprint.id
 
         actorsnapshot = self.context.world.get_snapshot().find(self.carla_actor.id)
         actorsnapshot_transform = actorsnapshot.get_transform()
@@ -210,4 +239,7 @@ class Actor:
         actor_data["actor_transform_get_matrix"] = actor_transform.get_matrix()
         actor_data["actor_transform_get_inverse_matrix"] = actor_transform.get_inverse_matrix()
 
-        return (actor_data, "")
+        return {self.KEY_VALUE: {self.id: actor_data}}
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.blueprint} @ {self.transform})"

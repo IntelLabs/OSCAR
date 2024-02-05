@@ -1,34 +1,81 @@
-# Copyright (c) 2023 Intel Corporation.
+# Copyright (c) 2024 Intel Corporation.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
-ARG OS_VER="0.0.1"
-FROM oscar/base:${OS_VER}
+# Create image and install python3 and libcarla dependencies
+FROM nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04 AS python
+WORKDIR /workspace
+ARG PYTHON_VERSION="3.9"
 
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y curl software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get install -y build-essential \
+                       git \
+                       libpng-dev \
+                       libtiff5-dev \
+                       libjpeg-dev \
+                       libgl1-mesa-glx \
+                       "python${PYTHON_VERSION}" \
+                       "python${PYTHON_VERSION}-dev" \
+                       "python${PYTHON_VERSION}-distutils" && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python${PYTHON_VERSION} && \
+    python${PYTHON_VERSION} -m pip install distro
+
+
+# Create image to build carla client and python bindings using specified python
+FROM python AS build
 ARG CARLA_VERSION="0.9.13"
 
-# Copy source code
-WORKDIR /opt/datagen-repo
-COPY ./ /opt/datagen-repo
+## Install carla compiler tools
+ENV DEBIAN_FRONTEND=noninteractive
+RUN curl -sS https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
+    apt-add-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal main" && \
+    apt-get update && \
+    apt-get install -y clang-10 \
+                       lld-10 \
+                       g++-7 \
+                       cmake \
+                       ninja-build \
+                       libvulkan1 \
+                       tzdata \
+                       sed \
+                       unzip \
+                       autoconf \
+                       libtool \
+                       rsync \
+                       libxml2-dev \
+                       wget && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/lib/llvm-10/bin/clang++ 180 && \
+    update-alternatives --install /usr/bin/clang clang /usr/lib/llvm-10/bin/clang 180
 
-# Build CARLA client
-WORKDIR /opt/datagen-repo/docker/build
-RUN git clone -b ${CARLA_VERSION} --depth 1 https://github.com/carla-simulator/carla && \
-    cp -r ../patches/* carla/ &&  cd carla/ && \
-    git apply *.patch && \
-    make PythonAPI.3
+## Build libcarla and python bindings for specific python
+RUN git clone -b ${CARLA_VERSION} --depth 1 https://github.com/carla-simulator/carla .
+# FIXME: We should only really copy patches for version that we know
+COPY ./docker/patches .
+RUN git apply *.patch
+RUN make PythonAPI ARGS="--python-version=$PYTHON_VERSION"
 
-# Install CARLA client
-RUN pip install carla/PythonAPI/carla/dist/carla-*.whl
 
-# Install OSCAR datagen tools
-WORKDIR /opt/datagen-repo
-RUN pip install .
+# Create final image from python image and install CARLA python wheel and our codebase
+FROM python AS datagen
+ARG PYTHON_VERSION="3.9"
 
-# Clean up
-RUN rm -rf /opt/datagen-repo/docker/build
+# libcarla wants to write cache to $HOME/carlaCache:
+#   https://github.com/carla-simulator/carla/blob/d7b45c1e159e6d13296f7a3a4e8b13e6c2d62c18/LibCarla/source/carla/client/FIleTransfer.cpp#L16
+# Since we don't care to persist this cache, we just set HOME to /tmp which is writable
+ENV HOME=/tmp
 
-# Setup oscar user
-RUN mkdir -p /opt/datagen-repo/data && chmod -R 777 /opt/datagen-repo/data
-RUN mkdir -p /opt/datagen-repo/logs && chmod -R 777 /opt/datagen-repo/logs
+# oscar_data_saver assumes PROJECT_ROOT is ~/oscar_data, but we don't have a real $HOME
+# so we set it to /workspace
+ENV PROJECT_ROOT=/workspace
+
+## Copy carla wheel from previous build and install python3 dependencies
+COPY --from=build /workspace/PythonAPI/carla/dist/carla-*.whl .
+RUN python${PYTHON_VERSION} -m pip install carla-*.whl
+
+## Copy code to WORKDIR and install as editable
+COPY . ./
+RUN python${PYTHON_VERSION} -m pip install -e .

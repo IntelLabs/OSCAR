@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright (C) 2023 Intel Corporation
+# Copyright (C) 2024 Intel Corporation
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -25,6 +25,8 @@ from oscar_datagen_tools.annotation.utils import (
     verify_dataset_path,
 )
 
+__all__ = ["AnnotatorController"]
+
 logger = logging.getLogger(__name__)
 coloredlogs.install(level=logging.INFO)
 
@@ -33,10 +35,10 @@ class AnnotatorController:
     def __init__(
         self,
         annotator: Annotator,
-        dataset_path: Path,
-        exclude_dirs: List[Path],
         sensor: str,
         output: str,
+        dataset_path: Path,
+        exclude_dirs: List[Path] = [],
     ) -> None:
         self.annotator = annotator
         self.dataset_path = dataset_path
@@ -63,12 +65,11 @@ class AnnotatorController:
             logger.error(f"No data found for sensor: {CATEGORIES_KEY}")
             return False
 
-        runs = self.dataset[SENSORS_KEY][self.sensor].keys()
-        for run in runs:
-            logger.info(f"Annotating run {run}")
-            sensor_paths = self.dataset[SENSORS_KEY][self.sensor][run]
-            categories_paths = self.dataset[SENSORS_KEY][CATEGORIES_KEY][run]
-            self.annotator.annotate_sensor(categories_paths, sensor_paths)
+        sensor_paths = self.dataset[SENSORS_KEY][self.sensor]
+        categories_paths = self.dataset[SENSORS_KEY][CATEGORIES_KEY]
+
+        logger.info("Starting annotation process...")
+        self.annotator.annotate_sensor(categories_paths, sensor_paths)
 
         filename = self.dataset_path / self.output
         self.annotator.store_annotations(filename)
@@ -85,7 +86,7 @@ class CLI:
         exclude_dirs: List[str] = [],
         output: str = "out.json",
         interval: int = 1,
-        categories: List[str] = ["Pedestrian", "Vehicle", "TrafficLight"],
+        categories: List[str] = ["Pedestrian", "Vehicle"],
         sensor: str = "rgb",
         binary_fill_holes: bool = False,
     ) -> None:
@@ -109,7 +110,11 @@ class CLI:
     def __annotate__(self, annotator: Annotator) -> None:
         """Trigger the annotation process."""
         controller = AnnotatorController(
-            annotator, self.dataset_parent_dir, self.exclude_dirs, self.sensor, self.output
+            annotator=annotator,
+            dataset_path=self.dataset_parent_dir,
+            exclude_dirs=self.exclude_dirs,
+            sensor=self.sensor,
+            output=self.output,
         )
 
         if not controller.prepare():
@@ -120,19 +125,36 @@ class CLI:
 
     def kwcoco(self) -> None:
         """COCO compatible annotation."""
-        annotator = COCO(self.interval, self._categories_handler, self.sensor)
+        annotator = COCO(
+            interval=self.interval,
+            categories_handler=self._categories_handler,
+            sensor_type=self.sensor,
+            dataset_path=self.dataset_parent_dir,
+        )
         self.__annotate__(annotator)
 
     def mots_txt(self) -> None:
         """MOTS compatible annotation, generating a text file."""
         annot_format = MOTSText(self.dataset_parent_dir)
-        annotator = MOTS(self.interval, self._categories_handler, self.sensor, annot_format)
+        annotator = MOTS(
+            interval=self.interval,
+            categories_handler=self._categories_handler,
+            sensor_type=self.sensor,
+            dataset_path=self.dataset_parent_dir,
+            format=annot_format,
+        )
         self.__annotate__(annotator)
 
     def mots_png(self) -> None:
         """MOTS compatible annotation, generating PNG images."""
         annot_format = MOTSPng(self.dataset_parent_dir / "instances")
-        annotator = MOTS(self.interval, self._categories_handler, self.sensor, annot_format)
+        annotator = MOTS(
+            interval=self.interval,
+            categories_handler=self._categories_handler,
+            sensor_type=self.sensor,
+            dataset_path=self.dataset_parent_dir,
+            format=annot_format,
+        )
         self.__annotate__(annotator)
 
 
